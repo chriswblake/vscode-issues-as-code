@@ -8,6 +8,8 @@ Developer guide for the **Issues as Code** VS Code extension.
 - **VS Code** 1.85 or later — [code.visualstudio.com](https://code.visualstudio.com)
 - **Git** — [git-scm.com](https://git-scm.com)
 
+> **Tip:** You can skip the local prerequisites entirely by using a Codespace — see [GitHub Codespaces](#github-codespaces) below.
+
 ## 2. Setup
 
 ```bash
@@ -16,6 +18,20 @@ cd vscode-issues-as-code
 npm install
 npm run compile
 ```
+
+## GitHub Codespaces
+
+The repository includes a devcontainer configuration so you can start developing immediately in a browser or via VS Code without installing anything locally.
+
+1. Click **Code → Codespaces → Create codespace on `main`** (or your branch) on the GitHub repository page.
+2. Wait for the container to build and the `postCreate` script to finish (`npm install` + `npm run compile` run automatically).
+3. The codespace opens with TypeScript support, ESLint, and Prettier already installed.
+
+Once the codespace is ready:
+
+- Press **F5** to launch an **Extension Development Host** window and test the extension interactively.
+- Run `npm run watch` in the terminal to rebuild automatically as you edit source files.
+- Run `npm run test:unit` to execute the unit test suite.
 
 ## 3. Run & Debug
 
