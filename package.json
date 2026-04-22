@@ -1,0 +1,87 @@
+{
+  "name": "vscode-issues-as-code",
+  "displayName": "Issues as Code",
+  "description": "Synchronize GitHub issues to a local .issues/ folder",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["onStartupFinished"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "issueSync.pullNow",
+        "title": "Issues: Pull Now"
+      },
+      {
+        "command": "issueSync.pushNow",
+        "title": "Issues: Push Now"
+      },
+      {
+        "command": "issueSync.refresh",
+        "title": "Issues: Refresh All"
+      }
+    ],
+    "configuration": {
+      "title": "Issues as Code",
+      "properties": {
+        "issueSync.fileNaming": {
+          "type": "string",
+          "default": "{issue-num}-{issue-title}",
+          "description": "Template for issue file names.",
+          "scope": "resource"
+        },
+        "issueSync.autosaveDelay": {
+          "type": "number",
+          "default": 60,
+          "description": "Seconds to wait after last save before pushing to GitHub.",
+          "scope": "resource"
+        },
+        "issueSync.syncFilters": {
+          "type": "array",
+          "default": [
+            { "name": "open", "query": "is:issue state:open" },
+            { "name": "closed_10days", "query": "is:issue closed:>{today-10d}" }
+          ],
+          "description": "Filters defining which issues to sync.",
+          "scope": "resource"
+        },
+        "issueSync.issuesLocation": {
+          "type": "string",
+          "default": "{workspaceDir}/.issues",
+          "description": "Path where issue files are stored.",
+          "scope": "resource"
+        },
+        "issueSync.pullInterval": {
+          "type": "number",
+          "default": 30,
+          "description": "Minutes between automatic pulls from GitHub.",
+          "scope": "resource"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@octokit/rest": "^20.0.0",
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.0.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.3.0",
+    "glob": "^8.0.0",
+    "mocha": "^10.2.0",
+    "typescript": "^5.3.0"
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTests.js",
+    "test:unit": "mocha --ui tdd out/test/fileManager.test.js out/test/configManager.test.js out/test/syncManager.test.js"
+  }
+}
