@@ -1,9 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export interface IssueFilter {
-  name: string;
+export interface SyncTarget {
+  repository_owner: string;
+  repository_name: string;
   query: string;
+  /** Absolute path to the folder where issue files for this target are stored. */
+  location: string;
 }
 
 export interface RepoInfo {
@@ -14,8 +17,7 @@ export interface RepoInfo {
 export interface IssueConfig {
   fileNaming: string;
   autosaveDelay: number;
-  syncFilters: IssueFilter[];
-  issuesLocation: string;
+  syncTargets: SyncTarget[];
   pullInterval: number;
 }
 
@@ -44,13 +46,17 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
       const vscode = require('vscode') as typeof import('vscode');
       const uri = (vscodeWorkspaceFolder as { uri: import('vscode').Uri }).uri;
       const cfg = vscode.workspace.getConfiguration('issueSync', uri);
-      const issuesLocation = (cfg.get<string>('issuesLocation') ?? '{workspaceDir}/.issues')
-        .replace('{workspaceDir}', workspaceFolderPath);
+
+      const rawTargets = cfg.get<SyncTarget[]>('syncTargets') ?? [];
+      const syncTargets = rawTargets.map(t => ({
+        ...t,
+        location: t.location.replace('{workspaceDir}', workspaceFolderPath),
+      }));
+
       return {
         fileNaming: cfg.get<string>('fileNaming') ?? '{issue-num}-{issue-title}',
         autosaveDelay: cfg.get<number>('autosaveDelay') ?? 60,
-        syncFilters: cfg.get<IssueFilter[]>('syncFilters') ?? defaultFilters(),
-        issuesLocation,
+        syncTargets,
         pullInterval: cfg.get<number>('pullInterval') ?? 30,
       };
     } catch {
@@ -62,16 +68,30 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
   return {
     fileNaming: '{issue-num}-{issue-title}',
     autosaveDelay: 60,
-    syncFilters: defaultFilters(),
-    issuesLocation: path.join(workspaceFolderPath, '.issues'),
+    syncTargets: [],
     pullInterval: 30,
   };
 }
 
-function defaultFilters(): IssueFilter[] {
+/**
+ * Builds default sync targets for a detected repo, mirroring the old default
+ * syncFilters behaviour (open issues + issues closed in the last 10 days).
+ */
+export function defaultSyncTargets(owner: string, repo: string, workspaceFolderPath: string): SyncTarget[] {
+  const issuesBase = path.join(workspaceFolderPath, '.issues');
   return [
-    { name: 'open', query: 'is:issue state:open' },
-    { name: 'closed_10days', query: 'is:issue closed:>{today-10d}' },
+    {
+      repository_owner: owner,
+      repository_name: repo,
+      query: 'is:issue state:open',
+      location: path.join(issuesBase, 'open'),
+    },
+    {
+      repository_owner: owner,
+      repository_name: repo,
+      query: 'is:issue closed:>{today-10d}',
+      location: path.join(issuesBase, 'closed_10days'),
+    },
   ];
 }
 
@@ -126,11 +146,24 @@ export function parseGitHubUrl(url: string): RepoInfo | null {
 }
 
 /**
- * Ensures `.issues/` is present in the workspace `.gitignore`.
+ * Ensures each issue-location directory (or its closest ancestor inside the
+ * workspace) is present in the workspace `.gitignore`.
  */
-export async function ensureGitignore(workspaceRoot: string): Promise<void> {
+export async function ensureGitignore(workspaceRoot: string, locations: string[]): Promise<void> {
   const gitignorePath = path.join(workspaceRoot, '.gitignore');
-  const entry = '.issues/';
+
+  // Build the set of gitignore entries — use the path relative to the workspace root.
+  // If the location is outside the workspace we skip it.
+  const entries = new Set<string>();
+  for (const loc of locations) {
+    const rel = path.relative(workspaceRoot, loc);
+    if (rel.startsWith('..')) { continue; } // outside workspace
+    // Take the top-level segment so that e.g. ".issues/open" → ".issues/"
+    const topLevel = rel.split(path.sep)[0];
+    entries.add(topLevel + '/');
+  }
+
+  if (entries.size === 0) { return; }
 
   let content = '';
   try {
@@ -140,10 +173,9 @@ export async function ensureGitignore(workspaceRoot: string): Promise<void> {
   }
 
   const lines = content.split('\n').map(l => l.trim());
-  if (!lines.includes(entry)) {
-    const newContent = content.endsWith('\n') || content === ''
-      ? content + entry + '\n'
-      : content + '\n' + entry + '\n';
-    await fs.promises.writeFile(gitignorePath, newContent, 'utf8');
-  }
+  const toAdd = [...entries].filter(e => !lines.includes(e));
+  if (toAdd.length === 0) { return; }
+
+  const suffix = content.endsWith('\n') || content === '' ? '' : '\n';
+  await fs.promises.writeFile(gitignorePath, content + suffix + toAdd.join('\n') + '\n', 'utf8');
 }

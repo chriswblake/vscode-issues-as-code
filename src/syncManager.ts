@@ -8,7 +8,7 @@ import {
   serializeIssueFile,
   type IssueFrontmatter,
 } from './fileManager';
-import { type IssueFilter, type IssueConfig, resolveQuery } from './configManager';
+import { type SyncTarget, type IssueConfig, resolveQuery } from './configManager';
 
 // Lazy vscode import so unit tests can stub it out
 function vscode(): typeof vscodeType {
@@ -25,20 +25,27 @@ export class SyncManager {
   constructor(
     private client: GitHubClient,
     private config: IssueConfig,
+    private target: SyncTarget,
     private workspaceFolder: vscodeType.WorkspaceFolder,
     private context: vscodeType.ExtensionContext
   ) {}
 
+  /** Returns true if the given file path is managed by this sync manager. */
+  ownsFile(filePath: string): boolean {
+    const base = this.target.location;
+    return filePath === base || filePath.startsWith(base + path.sep);
+  }
+
   /** Start the sync manager: setup file watcher and pull timer. */
   async start(): Promise<void> {
     const vs = vscode();
-    const issuesRelative = path.relative(
+    const locationRelative = path.relative(
       this.workspaceFolder.uri.fsPath,
-      this.config.issuesLocation
+      this.target.location
     );
 
     this.watcher = vs.workspace.createFileSystemWatcher(
-      new vs.RelativePattern(this.workspaceFolder, `${issuesRelative}/**/*.md`)
+      new vs.RelativePattern(this.workspaceFolder, `${locationRelative}/**/*.md`)
     );
 
     this.watcher.onDidChange(uri => this.onFileChanged(uri));
@@ -70,29 +77,26 @@ export class SyncManager {
     this.debounceTimers.clear();
   }
 
-  /** Pull all issues from GitHub for all configured filters. */
+  /** Pull all issues from GitHub for this target. */
   async pullAll(): Promise<void> {
-    for (const filter of this.config.syncFilters) {
-      try {
-        await this.pullFilter(filter);
-      } catch (err) {
-        console.error(`[issueSync] pullFilter "${filter.name}" failed:`, err);
-      }
+    try {
+      await this.pullTarget();
+    } catch (err) {
+      console.error(
+        `[issueSync] pullTarget "${this.target.repository_owner}/${this.target.repository_name}" failed:`, err
+      );
     }
   }
 
-  /** Pull issues for a single filter. */
-  async pullFilter(filter: IssueFilter): Promise<void> {
-    const resolved = resolveQuery(filter.query);
+  /** Pull issues for this target. */
+  async pullTarget(): Promise<void> {
+    const resolved = resolveQuery(this.target.query);
     const issues = await this.client.listIssues(resolved);
-
-    const filterDir = path.join(this.config.issuesLocation, filter.name);
 
     for (const issue of issues) {
       const fileName = issueToFileName(issue, this.config.fileNaming) + '.md';
-      const filePath = path.join(filterDir, fileName);
+      const filePath = path.join(this.target.location, fileName);
       await this.writeIssueSuppressed(filePath, issue);
-      await this.ensureCorrectFolder(filePath, issue);
     }
   }
 
@@ -129,7 +133,6 @@ export class SyncManager {
         assignees: frontmatter.assignees,
       });
       await this.writeIssueSuppressed(filePath, created, body);
-      await this.ensureCorrectFolder(filePath, created);
     }
   }
 
@@ -223,38 +226,6 @@ export class SyncManager {
     void cloudContent; // used above
   }
 
-  /**
-   * Moves an issue file to the correct folder if the current filter name
-   * no longer matches. Checks all configured filters.
-   */
-  private async ensureCorrectFolder(filePath: string, cloudIssue?: IssueData): Promise<void> {
-    const { frontmatter } = await readIssueFile(filePath).catch(() => ({
-      frontmatter: null,
-      body: '',
-    }));
-    if (!frontmatter) { return; }
-
-    for (const filter of this.config.syncFilters) {
-      const resolved = resolveQuery(filter.query);
-      const filterDir = path.join(this.config.issuesLocation, filter.name);
-      const inFilterDir = filePath.startsWith(filterDir + path.sep);
-
-      const matches = issueMatchesFilter(frontmatter, resolved);
-
-      if (matches && !inFilterDir) {
-        // Move file to this filter's folder
-        const fileName = path.basename(filePath);
-        const newPath = path.join(filterDir, fileName);
-        const fs = await import('fs');
-        await fs.promises.mkdir(filterDir, { recursive: true });
-        await fs.promises.rename(filePath, newPath);
-        return;
-      }
-    }
-
-    void cloudIssue;
-  }
-
   /** Handles a newly created .md file in the issues directory. */
   private async handleNewFile(uri: vscodeType.Uri): Promise<void> {
     if (this.isSuppressed(uri.fsPath)) { return; }
@@ -296,5 +267,4 @@ export function isConflict(cloudUpdatedAt: string, syncedAt: string): boolean {
   return new Date(cloudUpdatedAt) > new Date(syncedAt);
 }
 
-// Import issueMatchesFilter for internal use
-import { issueMatchesFilter } from './fileManager';
+

@@ -39,20 +39,33 @@
           "description": "Seconds to wait after last save before pushing to GitHub.",
           "scope": "resource"
         },
-        "issueSync.syncFilters": {
+        "issueSync.syncTargets": {
           "type": "array",
-          "default": [
-            { "name": "open", "query": "is:issue state:open" },
-            { "name": "closed_10days", "query": "is:issue closed:>{today-10d}" }
-          ],
-          "description": "Filters defining which issues to sync.",
-          "scope": "resource"
-        },
-        "issueSync.issuesLocation": {
-          "type": "string",
-          "default": "{workspaceDir}/.issues",
-          "description": "Path where issue files are stored.",
-          "scope": "resource"
+          "default": [],
+          "description": "List of repositories and queries to sync. Each entry specifies the owner, repository, query, and local folder for a set of issues. When empty, the extension falls back to auto-detecting the workspace repository.",
+          "scope": "resource",
+          "items": {
+            "type": "object",
+            "required": ["repository_owner", "repository_name", "query", "location"],
+            "properties": {
+              "repository_owner": {
+                "type": "string",
+                "description": "GitHub organization or user that owns the repository."
+              },
+              "repository_name": {
+                "type": "string",
+                "description": "Name of the GitHub repository."
+              },
+              "query": {
+                "type": "string",
+                "description": "GitHub issue search query. Supports {today-Nd} tokens, e.g. 'is:issue state:open'."
+              },
+              "location": {
+                "type": "string",
+                "description": "Local folder path where matching issue files are stored. Use {workspaceDir} as a placeholder for the workspace root."
+              }
+            }
+          }
         },
         "issueSync.pullInterval": {
           "type": "number",
