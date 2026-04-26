@@ -1,10 +1,12 @@
 import * as path from 'path';
+import * as fs from 'fs';
 import type * as vscodeType from 'vscode';
 import type { GitHubClient, IssueData } from './githubClient';
 import {
   readIssueFile,
   writeIssueFile,
   issueToFileName,
+  findFileByNumber,
   serializeIssueFile,
   type IssueFrontmatter,
 } from './fileManager';
@@ -94,9 +96,19 @@ export class SyncManager {
     const issues = await this.client.listIssues(resolved);
 
     for (const issue of issues) {
-      const fileName = issueToFileName(issue, this.config.fileNaming) + '.md';
-      const filePath = path.join(this.target.location, fileName);
-      await this.writeIssueSuppressed(filePath, issue);
+      const expectedFileName = issueToFileName(issue, this.config.fileNaming) + '.md';
+      const expectedPath = path.join(this.target.location, expectedFileName);
+
+      // Look for any existing file that tracks this issue number
+      const existingPath = await findFileByNumber(this.target.location, issue.number, this.config.fileNaming);
+
+      if (existingPath !== null && existingPath !== expectedPath) {
+        // Title changed on GitHub — write to new path and remove the old file
+        await this.writeIssueSuppressed(expectedPath, issue);
+        await this.unlinkSuppressed(existingPath);
+      } else {
+        await this.writeIssueSuppressed(existingPath ?? expectedPath, issue);
+      }
     }
   }
 
@@ -121,18 +133,18 @@ export class SyncManager {
         assignees: frontmatter.assignees,
       });
 
-      // Refresh local file with updated synced_at
+      // Refresh local file with updated synced_at; rename if title changed
       const updated = await this.client.getIssue(frontmatter.number);
-      await this.writeIssueSuppressed(filePath, updated, body);
+      await this.writeAndRename(filePath, updated, body);
     } else {
-      // New file — create issue on GitHub
+      // New file — create issue on GitHub, then rename file to match template
       const created = await this.client.createIssue({
         title: frontmatter.title,
         body,
         labels: frontmatter.labels,
         assignees: frontmatter.assignees,
       });
-      await this.writeIssueSuppressed(filePath, created, body);
+      await this.writeAndRename(filePath, created, body);
     }
   }
 
@@ -203,9 +215,10 @@ export class SyncManager {
     );
 
     if (choice === 'Accept Cloud') {
-      await writeIssueFile(localPath, cloudFrontmatter, cloudIssue.body ?? '');
+      // Write cloud version; rename file if the cloud title differs
+      await this.writeAndRename(localPath, cloudIssue);
     } else if (choice === 'Keep Local') {
-      // Force-push local version ignoring the conflict
+      // Force-push local version ignoring the conflict, then rename if title changed
       const { frontmatter, body } = await readIssueFile(localPath);
       await this.client.updateIssue(cloudIssue.number, {
         title: frontmatter.title,
@@ -215,12 +228,12 @@ export class SyncManager {
         assignees: frontmatter.assignees,
       });
       const updated = await this.client.getIssue(cloudIssue.number);
-      await this.writeIssueSuppressed(localPath, updated, body);
+      await this.writeAndRename(localPath, updated, body);
     }
 
     // Remove temp file
     try {
-      await (await import('fs')).promises.unlink(tempPath);
+      await fs.promises.unlink(tempPath);
     } catch { /* ignore */ }
 
     void cloudContent; // used above
@@ -257,6 +270,33 @@ export class SyncManager {
       };
       await writeIssueFile(filePath, frontmatter, overrideBody ?? issue.body ?? '');
     } finally {
+      this.suppress(filePath, -1);
+    }
+  }
+
+  /**
+   * Writes issue data to the correct template-derived path.
+   * If the derived path differs from currentPath (because the title changed),
+   * the old file is deleted and the new file is written; otherwise the file
+   * is updated in place.
+   */
+  private async writeAndRename(currentPath: string, issue: IssueData, overrideBody?: string): Promise<void> {
+    const expectedFileName = issueToFileName(issue, this.config.fileNaming) + '.md';
+    const expectedPath = path.join(this.target.location, expectedFileName);
+
+    await this.writeIssueSuppressed(expectedPath, issue, overrideBody);
+
+    if (expectedPath !== currentPath) {
+      await this.unlinkSuppressed(currentPath);
+    }
+  }
+
+  /** Deletes a file while suppressing watcher events for that path. */
+  private async unlinkSuppressed(filePath: string): Promise<void> {
+    this.suppress(filePath, 1);
+    try {
+      await fs.promises.unlink(filePath);
+    } catch { /* ignore if already gone */ } finally {
       this.suppress(filePath, -1);
     }
   }

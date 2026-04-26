@@ -74,6 +74,57 @@ export function issueToFileName(issue: IssueData, template: string): string {
 }
 
 /**
+ * Extracts the issue number from a file's base name (without extension) using
+ * the configured file naming template.  Returns null if the name does not
+ * match the template's numeric placeholder.
+ *
+ * Example: template='{issue-num}-{issue-title}', baseName='42-fix-the-bug' → 42
+ */
+export function issueNumberFromFileName(baseName: string, template: string): number | null {
+  const parts = template.split('{issue-num}');
+  if (parts.length !== 2) { return null; }
+
+  // Escape regex special characters in the literal parts of the template
+  const escapeLiteral = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  const before = escapeLiteral(parts[0]);
+  // Only the portion between {issue-num} and {issue-title} matters for anchoring
+  const afterParts = parts[1].split('{issue-title}');
+  const afterNum = escapeLiteral(afterParts[0]);
+
+  const regex = new RegExp(`^${before}(\\d+)${afterNum}`);
+  const match = baseName.match(regex);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/**
+ * Scans the given directory for a .md file whose base name encodes the
+ * supplied issue number according to the template.  Returns the full path
+ * of the first match, or null if no such file exists.
+ */
+export async function findFileByNumber(
+  location: string,
+  issueNumber: number,
+  template: string
+): Promise<string | null> {
+  let files: string[];
+  try {
+    files = await fs.promises.readdir(location);
+  } catch {
+    return null; // directory not yet created
+  }
+
+  for (const file of files) {
+    if (!file.endsWith('.md')) { continue; }
+    const base = file.slice(0, -3);
+    if (issueNumberFromFileName(base, template) === issueNumber) {
+      return path.join(location, file);
+    }
+  }
+  return null;
+}
+
+/**
  * Evaluates a resolved GitHub search query against an issue's frontmatter.
  * Supported tokens: state:, label:, assignee:, is:issue, updated:>, closed:>
  * Unknown tokens are treated as matching (return true).

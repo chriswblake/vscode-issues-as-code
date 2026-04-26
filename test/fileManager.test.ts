@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import {
   issueToFileName,
+  issueNumberFromFileName,
+  findFileByNumber,
   issueMatchesFilter,
   serializeIssueFile,
   readIssueFile,
@@ -208,5 +210,88 @@ suite('fileManager – serialize/read round-trip', () => {
     assert.deepStrictEqual(frontmatter.assignees, []);
     assert.strictEqual(frontmatter.closed_at, null);
     assert.ok(body.includes('Body text.'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 4: issueNumberFromFileName
+// ---------------------------------------------------------------------------
+suite('fileManager – issueNumberFromFileName', () => {
+  test('extracts number from default template', () => {
+    assert.strictEqual(issueNumberFromFileName('42-fix-the-bug', '{issue-num}-{issue-title}'), 42);
+  });
+
+  test('extracts number when title contains dashes', () => {
+    assert.strictEqual(issueNumberFromFileName('7-some-long-title-here', '{issue-num}-{issue-title}'), 7);
+  });
+
+  test('extracts number from number-only template (no title token)', () => {
+    assert.strictEqual(issueNumberFromFileName('issue-99', 'issue-{issue-num}'), 99);
+  });
+
+  test('extracts number from template with prefix and suffix around num', () => {
+    assert.strictEqual(issueNumberFromFileName('GH-123-my-task', 'GH-{issue-num}-{issue-title}'), 123);
+  });
+
+  test('returns null when filename does not start with the template prefix', () => {
+    assert.strictEqual(issueNumberFromFileName('fix-the-bug', '{issue-num}-{issue-title}'), null);
+  });
+
+  test('returns null for an empty string', () => {
+    assert.strictEqual(issueNumberFromFileName('', '{issue-num}-{issue-title}'), null);
+  });
+
+  test('returns null when template has no {issue-num} token', () => {
+    assert.strictEqual(issueNumberFromFileName('anything', 'no-placeholder'), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 5: findFileByNumber
+// ---------------------------------------------------------------------------
+suite('fileManager – findFileByNumber', () => {
+  let tmpDir: string;
+
+  setup(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'find-issue-test-'));
+  });
+
+  teardown(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('finds the file matching the issue number', async () => {
+    const filePath = path.join(tmpDir, '42-fix-the-bug.md');
+    await fs.promises.writeFile(filePath, '# content', 'utf8');
+
+    const result = await findFileByNumber(tmpDir, 42, '{issue-num}-{issue-title}');
+    assert.strictEqual(result, filePath);
+  });
+
+  test('returns null when no file matches the issue number', async () => {
+    await fs.promises.writeFile(path.join(tmpDir, '99-other.md'), '# other', 'utf8');
+
+    const result = await findFileByNumber(tmpDir, 42, '{issue-num}-{issue-title}');
+    assert.strictEqual(result, null);
+  });
+
+  test('returns null when directory does not exist', async () => {
+    const result = await findFileByNumber(path.join(tmpDir, 'nonexistent'), 1, '{issue-num}-{issue-title}');
+    assert.strictEqual(result, null);
+  });
+
+  test('ignores files that are not .md', async () => {
+    await fs.promises.writeFile(path.join(tmpDir, '42-fix-the-bug.txt'), 'text', 'utf8');
+
+    const result = await findFileByNumber(tmpDir, 42, '{issue-num}-{issue-title}');
+    assert.strictEqual(result, null);
+  });
+
+  test('finds file even when another issue has a similar number prefix', async () => {
+    await fs.promises.writeFile(path.join(tmpDir, '4-short.md'), '# 4', 'utf8');
+    await fs.promises.writeFile(path.join(tmpDir, '42-fix-the-bug.md'), '# 42', 'utf8');
+
+    const result = await findFileByNumber(tmpDir, 42, '{issue-num}-{issue-title}');
+    assert.strictEqual(result, path.join(tmpDir, '42-fix-the-bug.md'));
   });
 });
