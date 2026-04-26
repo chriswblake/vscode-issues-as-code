@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { detectRepo, getConfig, ensureGitignore, defaultSyncTargets } from './configManager';
+import { detectRepo, getConfig, ensureGitignore, defaultSyncTargets, repoInfoFromTarget } from './configManager';
 import { GitHubClient } from './githubClient';
 import { SyncManager } from './syncManager';
 
@@ -49,7 +49,12 @@ async function activateFolder(
   await ensureGitignore(folder.uri.fsPath, targets.map(t => t.location));
 
   for (const target of targets) {
-    const client = await GitHubClient.authenticate(target.repository_owner, target.repository_name);
+    const repoInfo = repoInfoFromTarget(target);
+    if (!repoInfo) {
+      console.warn(`[issueSync] Skipping target with unparseable repository_url: ${target.repository_url}`);
+      continue;
+    }
+    const client = await GitHubClient.authenticate(repoInfo.owner, repoInfo.repo);
     if (!client) { continue; }
 
     const manager = new SyncManager(client, config, target, folder, context);

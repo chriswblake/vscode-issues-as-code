@@ -83,7 +83,7 @@ export class SyncManager {
       await this.pullTarget();
     } catch (err) {
       console.error(
-        `[issueSync] pullTarget "${this.target.repository_owner}/${this.target.repository_name}" failed:`, err
+        `[issueSync] pullTarget "${this.target.repository_url}" failed:`, err
       );
     }
   }

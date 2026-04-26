@@ -40,20 +40,17 @@ Each entry defines one repository + query + local folder combination:
 ```json
 [
   {
-    "repository_owner": "my-org",
-    "repository_name": "my-repo",
+    "repository_url": "https://github.com/my-org/my-repo",
     "query": "is:issue state:open",
     "location": "{workspaceDir}/.issues/my-repo/open"
   },
   {
-    "repository_owner": "my-org",
-    "repository_name": "my-repo",
+    "repository_url": "https://github.com/my-org/my-repo",
     "query": "is:issue closed:>{today-10d}",
     "location": "{workspaceDir}/.issues/my-repo/closed_10days"
   },
   {
-    "repository_owner": "another-org",
-    "repository_name": "another-repo",
+    "repository_url": "https://github.com/another-org/another-repo",
     "query": "is:issue state:open",
     "location": "{workspaceDir}/.issues/another-repo/open"
   }

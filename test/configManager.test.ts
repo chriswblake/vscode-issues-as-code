@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { resolveQuery, getConfig, defaultSyncTargets, ensureGitignore } from '../src/configManager';
+import { resolveQuery, getConfig, defaultSyncTargets, repoInfoFromTarget, ensureGitignore } from '../src/configManager';
 
 // ---------------------------------------------------------------------------
 // Section 1: resolveQuery – basic {today-Nd} substitution
@@ -110,10 +110,17 @@ suite('configManager – defaultSyncTargets', () => {
   test('returns two targets for the given owner/repo', () => {
     const targets = defaultSyncTargets('myorg', 'myrepo', '/workspace');
     assert.strictEqual(targets.length, 2);
-    assert.strictEqual(targets[0].repository_owner, 'myorg');
-    assert.strictEqual(targets[0].repository_name, 'myrepo');
-    assert.strictEqual(targets[1].repository_owner, 'myorg');
-    assert.strictEqual(targets[1].repository_name, 'myrepo');
+    assert.ok(targets[0].repository_url.includes('myorg'));
+    assert.ok(targets[0].repository_url.includes('myrepo'));
+    assert.ok(targets[1].repository_url.includes('myorg'));
+    assert.ok(targets[1].repository_url.includes('myrepo'));
+  });
+
+  test('repository_url is a full GitHub HTTPS URL', () => {
+    const targets = defaultSyncTargets('myorg', 'myrepo', '/workspace');
+    for (const t of targets) {
+      assert.match(t.repository_url, /^https:\/\/github\.com\/myorg\/myrepo$/);
+    }
   });
 
   test('first target is an open-issues query', () => {
@@ -133,11 +140,49 @@ suite('configManager – defaultSyncTargets', () => {
     }
   });
 
-  test('different owners/repos produce different targets', () => {
+  test('different owners/repos produce different repository_urls', () => {
     const t1 = defaultSyncTargets('org1', 'repo1', '/workspace');
     const t2 = defaultSyncTargets('org2', 'repo2', '/workspace');
-    assert.notStrictEqual(t1[0].repository_owner, t2[0].repository_owner);
-    assert.notStrictEqual(t1[0].repository_name, t2[0].repository_name);
+    assert.notStrictEqual(t1[0].repository_url, t2[0].repository_url);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 5b: repoInfoFromTarget
+// ---------------------------------------------------------------------------
+suite('configManager – repoInfoFromTarget', () => {
+  test('parses HTTPS repository_url correctly', () => {
+    const target = { repository_url: 'https://github.com/my-org/my-repo', query: '', location: '' };
+    const info = repoInfoFromTarget(target);
+    assert.ok(info);
+    assert.strictEqual(info!.owner, 'my-org');
+    assert.strictEqual(info!.repo, 'my-repo');
+  });
+
+  test('parses URL with .git suffix', () => {
+    const target = { repository_url: 'https://github.com/my-org/my-repo.git', query: '', location: '' };
+    const info = repoInfoFromTarget(target);
+    assert.ok(info);
+    assert.strictEqual(info!.owner, 'my-org');
+    assert.strictEqual(info!.repo, 'my-repo');
+  });
+
+  test('returns null for an invalid URL', () => {
+    const target = { repository_url: 'not-a-url', query: '', location: '' };
+    const info = repoInfoFromTarget(target);
+    assert.strictEqual(info, null);
+  });
+
+  test('returns null for an empty string', () => {
+    const target = { repository_url: '', query: '', location: '' };
+    const info = repoInfoFromTarget(target);
+    assert.strictEqual(info, null);
+  });
+
+  test('returns null for a non-GitHub URL', () => {
+    const target = { repository_url: 'https://gitlab.com/my-org/my-repo', query: '', location: '' };
+    const info = repoInfoFromTarget(target);
+    assert.strictEqual(info, null);
   });
 });
 

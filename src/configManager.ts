@@ -2,8 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export interface SyncTarget {
-  repository_owner: string;
-  repository_name: string;
+  repository_url: string;
   query: string;
   /** Absolute path to the folder where issue files for this target are stored. */
   location: string;
@@ -79,20 +78,27 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
  */
 export function defaultSyncTargets(owner: string, repo: string, workspaceFolderPath: string): SyncTarget[] {
   const issuesBase = path.join(workspaceFolderPath, '.issues');
+  const repositoryUrl = `https://github.com/${owner}/${repo}`;
   return [
     {
-      repository_owner: owner,
-      repository_name: repo,
+      repository_url: repositoryUrl,
       query: 'is:issue state:open',
       location: path.join(issuesBase, 'open'),
     },
     {
-      repository_owner: owner,
-      repository_name: repo,
+      repository_url: repositoryUrl,
       query: 'is:issue closed:>{today-10d}',
       location: path.join(issuesBase, 'closed_10days'),
     },
   ];
+}
+
+/**
+ * Extracts owner/repo from a SyncTarget's repository_url.
+ * Returns null if the URL cannot be parsed.
+ */
+export function repoInfoFromTarget(target: SyncTarget): RepoInfo | null {
+  return parseGitHubUrl(target.repository_url);
 }
 
 /**

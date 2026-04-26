@@ -42,19 +42,15 @@
         "issueSync.syncTargets": {
           "type": "array",
           "default": [],
-          "description": "List of repositories and queries to sync. Each entry specifies the owner, repository, query, and local folder for a set of issues. When empty, the extension falls back to auto-detecting the workspace repository.",
+          "description": "List of repositories and queries to sync. Each entry specifies the repository URL, query, and local folder for a set of issues. When empty, the extension falls back to auto-detecting the workspace repository.",
           "scope": "resource",
           "items": {
             "type": "object",
-            "required": ["repository_owner", "repository_name", "query", "location"],
+            "required": ["repository_url", "query", "location"],
             "properties": {
-              "repository_owner": {
+              "repository_url": {
                 "type": "string",
-                "description": "GitHub organization or user that owns the repository."
-              },
-              "repository_name": {
-                "type": "string",
-                "description": "Name of the GitHub repository."
+                "description": "Full GitHub repository URL, e.g. 'https://github.com/my-org/my-repo'."
               },
               "query": {
                 "type": "string",
