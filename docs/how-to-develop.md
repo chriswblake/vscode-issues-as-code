@@ -46,6 +46,37 @@ To rebuild automatically while editing:
 npm run watch
 ```
 
+## 3b. Test With a Dummy Repository (for example: <username>/vscode-issues-as-code-testing)
+
+When you press F5, VS Code opens an isolated Extension Development Host window. That window often does not inherit your normal git credential flow, so cloning from inside that window may fail.
+
+Use this workflow instead:
+
+1. Create a throwaway GitHub repository such as `<username>/vscode-issues-as-code-testing`.
+2. Add a few test issues in GitHub (open and closed) so sync behavior is visible.
+3. Clone the dummy repository in your normal terminal or normal VS Code window (not inside Extension Development Host):
+
+   ```bash
+   git clone https://github.com/<username>/vscode-issues-as-code-testing.git
+   ```
+
+4. In your main extension project window (`vscode-issues-as-code`), press F5 to launch Extension Development Host.
+5. In Extension Development Host, open the already-cloned `vscode-issues-as-code-testing` folder with File -> Open Folder.
+6. In Extension Development Host, sign in to GitHub if prompted (Accounts menu in the lower-left is a quick check).
+7. Configure sync targets for the opened testing workspace:
+   - Run the command palette action: Issues: Add Open Issues Default Config, or
+   - Manually set `issueSync.syncTargets` in workspace settings.
+8. Confirm files appear under `.issues/open` in the testing folder.
+
+If cloning fails in Extension Development Host, that is expected for some setups. Pre-cloning outside the host window is the recommended test path.
+
+### Troubleshooting the dummy-repo workflow
+
+- If repo detection fails, verify the opened folder is a git repository and has an `origin` remote pointing to GitHub.
+- If auth fails, sign out/in of GitHub in Extension Development Host and rerun the command.
+- If nothing syncs, verify `issueSync.syncTargets` is set for that workspace folder and run Issues: Pull Now (config changes are applied automatically).
+- If files still do not appear, check the extension host logs (Output panel) for `[issueSync]` errors.
+
 ## 4. Project Structure
 
 | Path                   | Purpose                                                 |
