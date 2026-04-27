@@ -41,7 +41,7 @@
           "description": "Template for issue file names.",
           "scope": "resource"
         },
-        "issueSync.autosaveDelay": {
+        "issueSync.pushOnSaveDelay": {
           "type": "number",
           "default": 60,
           "description": "Seconds to wait after last save before pushing to GitHub.",

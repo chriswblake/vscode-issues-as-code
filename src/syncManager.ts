@@ -251,7 +251,7 @@ export class SyncManager {
         const message = err instanceof Error ? err.message : 'Unknown error';
         void vscode().window.showErrorMessage(`Issue sync push failed for ${path.basename(filePath)}: ${message}`);
       });
-    }, this.config.autosaveDelay * 1000);
+    }, this.config.pushOnSaveDelay * 1000);
 
     this.debounceTimers.set(filePath, timer);
   }

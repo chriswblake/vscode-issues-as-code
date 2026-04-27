@@ -21,7 +21,7 @@ export interface ShowSyncIconsConfig {
 
 export interface IssueConfig {
   fileNaming: string;
-  autosaveDelay: number;
+  pushOnSaveDelay: number;
   syncTargets: SyncTarget[];
   pullInterval: number;
   syncStatePath: string;
@@ -69,7 +69,7 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
 
       return {
         fileNaming: cfg.get<string>('fileNaming') ?? '{issue-num}-{issue-title}',
-        autosaveDelay: cfg.get<number>('autosaveDelay') ?? 60,
+        pushOnSaveDelay: cfg.get<number>('pushOnSaveDelay') ?? 60,
         syncTargets,
         pullInterval: cfg.get<number>('pullInterval') ?? 30,
         syncStatePath,
@@ -89,7 +89,7 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
   // Default config used in tests or when vscode is unavailable
   return {
     fileNaming: '{issue-num}-{issue-title}',
-    autosaveDelay: 60,
+    pushOnSaveDelay: 60,
     syncTargets: [],
     pullInterval: 30,
     syncStatePath: path.join(workspaceFolderPath, '.issues', 'sync-state.json'),
