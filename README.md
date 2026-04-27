@@ -10,12 +10,17 @@ Synchronize GitHub issues to a local `.issues/` folder — edit them as Markdown
 - **Auto-pull** issues on startup and at a configurable interval
 - **Debounced push** — edits are pushed to GitHub N seconds after your last save
 - **Full frontmatter** — title, state, labels, assignees, and projects all sync
-- **Conflict detection** — opens a diff editor with Accept Cloud / Keep Local buttons
+- **Smart conflict resolution** — simple remote-wins changes are auto-accepted; complex conflicts open a standard merge editor
 - **GitHub Projects v2** — read and write project field values
 - **Multi-org / multi-repo** — sync issues from any number of organizations and repositories simultaneously
 - **Multi-root workspace** support — one sync manager per folder
 - **Date tokens** in sync targets — `{today-10d}` resolves at runtime
 - **Create issues from local files** — save a new `.md` file in a configured location to open it on GitHub
+- **Auto-rename files** — issue files are renamed automatically when the title changes on GitHub
+- **Auto-reorganize files** — files are moved to the correct folder when `syncTargets` are updated
+- **Sync state icons** — A / M / ✓ badges in the Explorer show new, modified, and synchronized issues
+- **Sync notifications** — progress notifications during pull and push operations
+- **Dedicated sync state file** — sync metadata is stored in a separate `sync-state.json` rather than in issue frontmatter
 
 ## Getting Started
 
@@ -29,12 +34,15 @@ Synchronize GitHub issues to a local `.issues/` folder — edit them as Markdown
 
 All settings have `"scope": "resource"` so they can be set per workspace folder.
 
-| Setting                   | Type     | Default                     | Description                                    |
-| ------------------------- | -------- | --------------------------- | ---------------------------------------------- |
-| `issueSync.fileNaming`    | `string` | `{issue-num}-{issue-title}` | Template for issue file names                  |
-| `issueSync.autosaveDelay` | `number` | `60`                        | Seconds to wait after last save before pushing |
-| `issueSync.syncTargets`   | `array`  | `[]`                        | Repositories and queries to sync (see below)   |
-| `issueSync.pullInterval`  | `number` | `30`                        | Minutes between automatic pulls                |
+| Setting                     | Type      | Default                                                  | Description                                                   |
+| --------------------------- | --------- | -------------------------------------------------------- | ------------------------------------------------------------- |
+| `issueSync.fileNaming`      | `string`  | `{issue-num}-{issue-title}`                              | Template for issue file names                                 |
+| `issueSync.pushOnSaveDelay` | `number`  | `60`                                                     | Seconds to wait after last save before pushing                |
+| `issueSync.syncTargets`     | `array`   | `[]`                                                     | Repositories and queries to sync (see below)                  |
+| `issueSync.pullInterval`    | `number`  | `30`                                                     | Minutes between automatic pulls                               |
+| `issueSync.syncStatePath`   | `string`  | `{workspaceDir}/.issues/sync-state.json`                 | Path to the local sync state file (machine-local, gitignored) |
+| `issueSync.showSyncState`   | `boolean` | `false`                                                  | Show the sync state file in the VS Code Explorer              |
+| `issueSync.showSyncIcons`   | `object`  | `{ newIssue: true, modified: true, synchronized: true }` | Controls which sync status badges appear on issue files       |
 
 ### `issueSync.syncTargets`
 
@@ -66,7 +74,11 @@ When `syncTargets` is empty (the default) the extension falls back to auto-detec
 
 ## How Sync Works
 
-On activation the extension reads `issueSync.syncTargets` and creates one sync manager per entry. Each manager authenticates via VS Code's GitHub auth provider, pulls issues matching its query into its configured `location` folder, and starts a `FileSystemWatcher` over that folder. When you save a file the extension starts a debounce timer and pushes your changes to the correct repository after the configured delay. If the cloud version was updated since your last sync, a diff editor opens so you can choose which version to keep. Every configured location's top-level directory is added to `.gitignore` automatically.
+On activation the extension reads `issueSync.syncTargets` and creates one sync manager per entry. Each manager authenticates via VS Code's GitHub auth provider, pulls issues matching its query into its configured `location` folder, and starts a `FileSystemWatcher` over that folder. When you save a file the extension starts a debounce timer and pushes your changes to the correct repository after the configured delay.
+
+If the remote version was updated since your last sync, simple non-conflicting changes are auto-accepted from the remote. If both sides changed the same content, a standard merge editor opens so you can resolve the conflict manually. Every configured location's top-level directory is added to `.gitignore` automatically.
+
+Sync state (last-synced timestamps) is stored in a dedicated `sync-state.json` file rather than in issue frontmatter. This file is machine-local and is automatically gitignored. File names are updated automatically when an issue's title changes on GitHub, and files are moved to the correct folder if `syncTargets` are modified.
 
 ## Commands
 
