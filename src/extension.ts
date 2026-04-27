@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { detectRepo, getConfig, ensureGitignore, defaultSyncTargets, repoInfoFromTarget } from './configManager';
 import { GitHubClient } from './githubClient';
 import { SyncManager } from './syncManager';
@@ -122,6 +123,7 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
   }
 
   await ensureGitignore(folder.uri.fsPath, [...targets.map((t) => t.location), config.syncStatePath]);
+  await applyFilesExclude(folder, config);
 
   const stateManager = new SyncStateManager(config.syncStatePath);
   await stateManager.load();
@@ -147,4 +149,27 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
 export function deactivate(): void {
   syncManagers.forEach((m) => m.dispose());
   syncManagers.length = 0;
+}
+
+/**
+ * Adds or removes the sync state file from VS Code's files.exclude setting
+ * based on the showSyncState configuration.
+ */
+async function applyFilesExclude(folder: vscode.WorkspaceFolder, config: import('./configManager').IssueConfig): Promise<void> {
+  const relPath = path.relative(folder.uri.fsPath, config.syncStatePath);
+  if (relPath.startsWith('..')) {
+    return; // Sync state file is outside workspace — skip
+  }
+
+  const filesConfig = vscode.workspace.getConfiguration('files', folder.uri);
+  // Use inspect() to read only the folder-level value, not the merged global defaults
+  const folderExclude = { ...(filesConfig.inspect<Record<string, boolean>>('exclude')?.workspaceFolderValue ?? {}) };
+
+  if (config.showSyncState) {
+    delete folderExclude[relPath];
+  } else {
+    folderExclude[relPath] = true;
+  }
+
+  await filesConfig.update('exclude', folderExclude, vscode.ConfigurationTarget.WorkspaceFolder);
 }

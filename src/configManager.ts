@@ -19,6 +19,7 @@ export interface IssueConfig {
   syncTargets: SyncTarget[];
   pullInterval: number;
   syncStatePath: string;
+  showSyncState: boolean;
 }
 
 /**
@@ -62,6 +63,7 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
         syncTargets,
         pullInterval: cfg.get<number>('pullInterval') ?? 30,
         syncStatePath,
+        showSyncState: cfg.get<boolean>('showSyncState') ?? false,
       };
     } catch {
       // Fall through to defaults
@@ -75,6 +77,7 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
     syncTargets: [],
     pullInterval: 30,
     syncStatePath: path.join(workspaceFolderPath, '.issues', 'sync-state.json'),
+    showSyncState: false,
   };
 }
 

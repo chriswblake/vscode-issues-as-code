@@ -20,6 +20,7 @@ suite('fileManager – issueToFileName', () => {
       updated_at: new Date().toISOString(),
       closed_at: null,
       node_id: 'node1',
+      html_url: '',
     };
   }
 

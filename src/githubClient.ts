@@ -10,6 +10,7 @@ export interface IssueData {
   updated_at: string;
   closed_at: string | null;
   node_id: string;
+  html_url: string;
 }
 
 export interface ProjectFieldData {
@@ -43,7 +44,9 @@ export class GitHubClient {
       if (!session) {
         session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
       }
-      if (!session) { return null; }
+      if (!session) {
+        return null;
+      }
       return new GitHubClient(session.accessToken, owner, repo);
     } catch {
       return null;
@@ -56,20 +59,16 @@ export class GitHubClient {
    */
   async listIssues(query: string): Promise<IssueData[]> {
     const fullQuery = `${query} repo:${this.owner}/${this.repo}`;
-    const searchResults = await this.octokit.paginate(
-      this.octokit.rest.search.issuesAndPullRequests,
-      { q: fullQuery, per_page: 100 },
-      response => {
-        const remaining = response.headers['x-ratelimit-remaining'];
-        if (remaining !== undefined) {
-          console.log(`[issueSync] x-ratelimit-remaining: ${remaining}`);
-        }
-        return response.data;
+    const searchResults = await this.octokit.paginate(this.octokit.rest.search.issuesAndPullRequests, { q: fullQuery, per_page: 100 }, (response) => {
+      const remaining = response.headers['x-ratelimit-remaining'];
+      if (remaining !== undefined) {
+        console.log(`[issueSync] x-ratelimit-remaining: ${remaining}`);
       }
-    );
+      return response.data;
+    });
 
     // Filter out pull requests
-    const issues = searchResults.filter(item => !item.pull_request);
+    const issues = searchResults.filter((item) => !item.pull_request);
 
     // Fetch full bodies (search API may truncate)
     const BATCH_SIZE = 20;
@@ -80,7 +79,7 @@ export class GitHubClient {
       if (i > 0) {
         await delay(250);
       }
-      const fetched = await Promise.all(batch.map(item => this.getIssue(item.number)));
+      const fetched = await Promise.all(batch.map((item) => this.getIssue(item.number)));
       results.push(...fetched);
     }
 
@@ -100,7 +99,7 @@ export class GitHubClient {
 
   /** Creates a new issue. */
   async createIssue(params: {
-    title: string;
+    title: string; //
     body?: string;
     labels?: string[];
     assignees?: string[];
@@ -122,7 +121,7 @@ export class GitHubClient {
       state?: 'open' | 'closed';
       labels?: string[];
       assignees?: string[];
-    }
+    },
   ): Promise<IssueData> {
     const { data } = await this.octokit.rest.issues.update({
       owner: this.owner,
@@ -193,7 +192,9 @@ export class GitHubClient {
     const fields: ProjectFieldData[] = [];
     for (const item of response.node.projectItems?.nodes ?? []) {
       for (const fv of item.fieldValues.nodes) {
-        if (!fv.field) { continue; }
+        if (!fv.field) {
+          continue;
+        }
         fields.push({
           projectId: item.project.id,
           projectTitle: item.project.title,
@@ -211,10 +212,10 @@ export class GitHubClient {
    * Updates a single project field value via GraphQL mutation.
    */
   async updateProjectField(
-    projectId: string,
+    projectId: string, //
     itemId: string,
     fieldId: string,
-    value: string
+    value: string,
   ): Promise<void> {
     const mutation = `
       mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $value: ProjectV2FieldValue!) {
@@ -238,7 +239,7 @@ export class GitHubClient {
 }
 
 function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -248,14 +249,11 @@ function mapIssue(data: any): IssueData {
     title: data.title,
     state: data.state as 'open' | 'closed',
     body: data.body ?? null,
-    labels: (data.labels ?? []).map((l: { name?: string } | string) =>
-      typeof l === 'string' ? l : (l.name ?? '')
-    ),
-    assignees: (data.assignees ?? []).map((a: { login?: string } | string) =>
-      typeof a === 'string' ? a : (a.login ?? '')
-    ),
+    labels: (data.labels ?? []).map((l: { name?: string } | string) => (typeof l === 'string' ? l : (l.name ?? ''))),
+    assignees: (data.assignees ?? []).map((a: { login?: string } | string) => (typeof a === 'string' ? a : (a.login ?? ''))),
     updated_at: data.updated_at,
     closed_at: data.closed_at ?? null,
     node_id: data.node_id,
+    html_url: data.html_url ?? '',
   };
 }

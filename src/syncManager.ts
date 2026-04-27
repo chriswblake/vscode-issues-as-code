@@ -15,7 +15,7 @@ import {
   type IssueConfig,
   resolveQuery,
 } from './configManager';
-import { SyncStateManager } from './syncStateManager';
+import { SyncStateManager, type RemoteIssueInfo } from './syncStateManager';
 
 // Lazy vscode import so unit tests can stub it out
 function vscode(): typeof vscodeType {
@@ -160,7 +160,7 @@ export class SyncManager {
       return;
     }
 
-    if (!isConflict(issue.updated_at, this.stateManager.getSyncedAt(issue.number))) {
+    if (!isConflict(issue.updated_at, this.stateManager.getSyncedAt(this.target.location, issue.number))) {
       // Cloud hasn't changed since last sync — local edits are pending push; leave them alone
       return;
     }
@@ -187,7 +187,7 @@ export class SyncManager {
       // Existing issue — check for conflicts first
       const cloud = await this.client.getIssue(frontmatter.number);
 
-      if (isConflict(cloud.updated_at, this.stateManager.getSyncedAt(frontmatter.number))) {
+      if (isConflict(cloud.updated_at, this.stateManager.getSyncedAt(this.target.location, frontmatter.number!))) {
         await this.handleConflict(filePath, cloud);
         return;
       }
@@ -284,7 +284,12 @@ export class SyncManager {
     this.suppress(localPath, 1);
     try {
       await fs.promises.writeFile(localPath, conflictContent, 'utf8');
-      await this.stateManager.setSyncedAt(issue.number, issue.updated_at);
+      await this.stateManager.setSyncedAt(
+        this.target.location, //
+        issue.number,
+        localPath,
+        issueToRemoteInfo(issue),
+      );
     } finally {
       this.suppress(localPath, -1);
     }
@@ -320,7 +325,12 @@ export class SyncManager {
         assignees: issue.assignees,
       };
       await writeIssueFile(filePath, frontmatter, overrideBody ?? issue.body ?? '');
-      await this.stateManager.setSyncedAt(issue.number, issue.updated_at);
+      await this.stateManager.setSyncedAt(
+        this.target.location, //
+        issue.number,
+        filePath,
+        issueToRemoteInfo(issue),
+      );
     } finally {
       this.suppress(filePath, -1);
     }
@@ -354,6 +364,20 @@ export class SyncManager {
       this.suppress(filePath, -1);
     }
   }
+}
+
+/** Maps an IssueData to the RemoteIssueInfo shape stored in the sync state. */
+function issueToRemoteInfo(issue: IssueData): RemoteIssueInfo {
+  return {
+    number: issue.number, //
+    title: issue.title,
+    state: issue.state,
+    labels: issue.labels,
+    assignees: issue.assignees,
+    updated_at: issue.updated_at,
+    closed_at: issue.closed_at,
+    html_url: issue.html_url,
+  };
 }
 
 /** Pure helper: returns true if the file content contains unresolved merge conflict markers. */

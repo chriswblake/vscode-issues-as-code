@@ -16,7 +16,7 @@ suite('configManager – resolveQuery basic substitution', () => {
     assert.strictEqual(result, `closed:>${expectedStr}`);
   });
 
-  test('replaces {today-0d} with today\'s date', () => {
+  test("replaces {today-0d} with today's date", () => {
     const result = resolveQuery('{today-0d}');
     const today = new Date().toISOString().slice(0, 10);
     assert.strictEqual(result, today);
@@ -34,8 +34,10 @@ suite('configManager – resolveQuery basic substitution', () => {
 suite('configManager – resolveQuery multiple / edge tokens', () => {
   test('replaces multiple {today-Nd} tokens in one string', () => {
     const result = resolveQuery('{today-1d} {today-30d}');
-    const d1 = new Date(); d1.setDate(d1.getDate() - 1);
-    const d30 = new Date(); d30.setDate(d30.getDate() - 30);
+    const d1 = new Date();
+    d1.setDate(d1.getDate() - 1);
+    const d30 = new Date();
+    d30.setDate(d30.getDate() - 30);
     assert.strictEqual(result, `${d1.toISOString().slice(0, 10)} ${d30.toISOString().slice(0, 10)}`);
   });
 
@@ -99,6 +101,7 @@ suite('configManager – getConfig defaults', () => {
     const config = getConfig('/workspace');
     assert.strictEqual(config.fileNaming, '{issue-num}-{issue-title}');
     assert.strictEqual(config.autosaveDelay, 60);
+    assert.strictEqual(config.showSyncState, false);
     assert.strictEqual(config.pullInterval, 30);
   });
 });
@@ -226,7 +229,7 @@ suite('configManager – ensureGitignore', () => {
 
   test('deduplicates multiple locations sharing the same top-level directory', async () => {
     await ensureGitignore(tmpDir, [
-      path.join(tmpDir, '.issues', 'open'),
+      path.join(tmpDir, '.issues', 'open'), //
       path.join(tmpDir, '.issues', 'closed'),
     ]);
     const content = await fs.promises.readFile(path.join(tmpDir, '.gitignore'), 'utf8');
@@ -236,7 +239,7 @@ suite('configManager – ensureGitignore', () => {
 
   test('adds separate entries for locations under different top-level directories', async () => {
     await ensureGitignore(tmpDir, [
-      path.join(tmpDir, '.issues'),
+      path.join(tmpDir, '.issues'), //
       path.join(tmpDir, '.other-issues'),
     ]);
     const content = await fs.promises.readFile(path.join(tmpDir, '.gitignore'), 'utf8');
@@ -249,7 +252,11 @@ suite('configManager – ensureGitignore', () => {
     await ensureGitignore(tmpDir, [outsidePath]);
     const gitignorePath = path.join(tmpDir, '.gitignore');
     let exists = true;
-    try { await fs.promises.access(gitignorePath); } catch { exists = false; }
+    try {
+      await fs.promises.access(gitignorePath);
+    } catch {
+      exists = false;
+    }
     // File should not be created (or if it exists, should not have an absolute path entry)
     if (exists) {
       const content = await fs.promises.readFile(gitignorePath, 'utf8');
