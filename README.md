@@ -2,6 +2,9 @@
 
 Synchronize GitHub issues to a local `.issues/` folder — edit them as Markdown files and let the extension push changes back to GitHub automatically.
 
+> [!IMPORTANT]
+> This project was vibe coded. Please experiment on a few test repositories before working on a real project.
+
 ## Features
 
 - **Auto-pull** issues on startup and at a configurable interval
