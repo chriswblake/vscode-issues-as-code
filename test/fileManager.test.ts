@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { issueToFileName, issueNumberFromFileName, findFileByNumber, issueMatchesFilter, serializeIssueFile, readIssueFile, writeIssueFile, type IssueFrontmatter } from '../src/fileManager';
+import { issueToFileName, issueNumberFromFileName, findFileByNumber, findFileByIssueNumberInFrontmatter, issueMatchesFilter, serializeIssueFile, readIssueFile, writeIssueFile, type IssueFrontmatter } from '../src/fileManager';
 import type { IssueData } from '../src/githubClient';
 
 // ---------------------------------------------------------------------------
@@ -289,5 +289,90 @@ suite('fileManager – findFileByNumber', () => {
 
     const result = await findFileByNumber(tmpDir, 42, '{issue-num}-{issue-title}');
     assert.strictEqual(result, path.join(tmpDir, '42-fix-the-bug.md'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 6: findFileByIssueNumberInFrontmatter
+// ---------------------------------------------------------------------------
+suite('fileManager – findFileByIssueNumberInFrontmatter', () => {
+  let tmpDir: string;
+
+  setup(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'frontmatter-find-test-'));
+  });
+
+  teardown(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function makeFrontmatter(number: number): IssueFrontmatter {
+    return { number, title: 'Some Issue', state: 'open', labels: [], assignees: [] };
+  }
+
+  test('finds file whose frontmatter number matches, regardless of filename', async () => {
+    // Arrange
+    const filePath = path.join(tmpDir, 'issue-42.md');
+    await writeIssueFile(filePath, makeFrontmatter(42), 'body');
+
+    // Act
+    const result = await findFileByIssueNumberInFrontmatter(tmpDir, 42);
+
+    // Assert
+    assert.strictEqual(result, filePath);
+  });
+
+  test('finds file named with old template when current template differs', async () => {
+    // Arrange — file was created with the old {issue-num}-{issue-title} template
+    const oldPath = path.join(tmpDir, '7-fix-the-bug.md');
+    await writeIssueFile(oldPath, makeFrontmatter(7), 'body');
+
+    // Act — search using the new template naming convention
+    const result = await findFileByIssueNumberInFrontmatter(tmpDir, 7);
+
+    // Assert
+    assert.strictEqual(result, oldPath);
+  });
+
+  test('returns null when no file has a matching frontmatter number', async () => {
+    // Arrange
+    await writeIssueFile(path.join(tmpDir, '99-other.md'), makeFrontmatter(99), 'body');
+
+    // Act
+    const result = await findFileByIssueNumberInFrontmatter(tmpDir, 42);
+
+    // Assert
+    assert.strictEqual(result, null);
+  });
+
+  test('returns null when directory does not exist', async () => {
+    // Arrange / Act
+    const result = await findFileByIssueNumberInFrontmatter(path.join(tmpDir, 'nonexistent'), 1);
+
+    // Assert
+    assert.strictEqual(result, null);
+  });
+
+  test('skips non-.md files', async () => {
+    // Arrange — only a .txt file exists
+    await fs.promises.writeFile(path.join(tmpDir, '42.txt'), 'not markdown', 'utf8');
+
+    // Act
+    const result = await findFileByIssueNumberInFrontmatter(tmpDir, 42);
+
+    // Assert
+    assert.strictEqual(result, null);
+  });
+
+  test('skips files with no frontmatter number', async () => {
+    // Arrange — file has no number in frontmatter
+    const content = '---\ntitle: No Number\nstate: open\n---\nbody\n';
+    await fs.promises.writeFile(path.join(tmpDir, 'no-number.md'), content, 'utf8');
+
+    // Act
+    const result = await findFileByIssueNumberInFrontmatter(tmpDir, 42);
+
+    // Assert
+    assert.strictEqual(result, null);
   });
 });

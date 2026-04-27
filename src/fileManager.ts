@@ -114,6 +114,36 @@ export async function findFileByNumber(location: string, issueNumber: number, te
 }
 
 /**
+ * Fallback scan when the fileNaming template may have changed.
+ * Reads the frontmatter of every .md file in the directory and returns the
+ * first whose `number` field matches issueNumber.
+ */
+export async function findFileByIssueNumberInFrontmatter(location: string, issueNumber: number): Promise<string | null> {
+  let files: string[];
+  try {
+    files = await fs.promises.readdir(location);
+  } catch {
+    return null;
+  }
+
+  for (const file of files) {
+    if (!file.endsWith('.md')) {
+      continue;
+    }
+    const filePath = path.join(location, file);
+    try {
+      const { frontmatter } = await readIssueFile(filePath);
+      if (frontmatter.number === issueNumber) {
+        return filePath;
+      }
+    } catch {
+      /* unreadable file — skip */
+    }
+  }
+  return null;
+}
+
+/**
  * Evaluates a resolved GitHub search query against an issue's frontmatter.
  * Supported tokens: state:, label:, assignee:, is:issue, updated:>, closed:>
  * Unknown tokens are treated as matching (return true).

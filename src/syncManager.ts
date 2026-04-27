@@ -7,6 +7,7 @@ import {
   writeIssueFile,
   issueToFileName,
   findFileByNumber,
+  findFileByIssueNumberInFrontmatter,
   serializeIssueFile,
   type IssueFrontmatter,
 } from './fileManager';
@@ -124,11 +125,16 @@ export class SyncManager {
       const expectedPath = path.join(this.target.location, expectedFileName);
 
       // Look for any existing file that tracks this issue number
-      const existingPath = await findFileByNumber(
+      let existingPath = await findFileByNumber(
         this.target.location, //
         issue.number,
         this.config.fileNaming,
       );
+
+      // Fallback: template may have changed — scan frontmatter for a match
+      if (existingPath === null) {
+        existingPath = await findFileByIssueNumberInFrontmatter(this.target.location, issue.number);
+      }
 
       if (existingPath !== null && existingPath !== expectedPath) {
         // Title changed on GitHub — write to new path and remove the old file
