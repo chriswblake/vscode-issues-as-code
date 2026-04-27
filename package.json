@@ -1,0 +1,153 @@
+{
+  "name": "vscode-issues-as-code",
+  "displayName": "Issues as Code",
+  "description": "Synchronize GitHub issues to a local .issues/ folder",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/src/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "issuesAsCode.pullNow",
+        "title": "Issues as Code: Pull Now"
+      },
+      {
+        "command": "issuesAsCode.pushNow",
+        "title": "Issues as Code: Push Now"
+      },
+      {
+        "command": "issuesAsCode.refresh",
+        "title": "Issues as Code: Refresh All"
+      },
+      {
+        "command": "issuesAsCode.addOpenIssuesDefaultConfig",
+        "title": "Issues as Code: Add Open Issues Default Config"
+      }
+    ],
+    "configuration": {
+      "title": "Issues as Code",
+      "properties": {
+        "issuesAsCode.fileNaming": {
+          "type": "string",
+          "default": "{issue-num}-{issue-title}",
+          "description": "Template for issue file names.",
+          "scope": "resource"
+        },
+        "issuesAsCode.pushOnSaveDelay": {
+          "type": "number",
+          "default": 60,
+          "description": "Seconds to wait after last save before pushing to GitHub.",
+          "scope": "resource"
+        },
+        "issuesAsCode.syncTargets": {
+          "type": "array",
+          "default": [],
+          "description": "List of repositories and queries to sync. Each entry specifies the repository URL, query, and local folder for a set of issues. When empty, the extension falls back to auto-detecting the workspace repository.",
+          "scope": "resource",
+          "items": {
+            "type": "object",
+            "required": [
+              "repository_url",
+              "query",
+              "location"
+            ],
+            "properties": {
+              "repository_url": {
+                "type": "string",
+                "description": "Full GitHub repository URL, e.g. 'https://github.com/my-org/my-repo'."
+              },
+              "query": {
+                "type": "string",
+                "description": "GitHub issue search query. Supports {today-Nd} tokens, e.g. 'is:issue state:open'."
+              },
+              "location": {
+                "type": "string",
+                "description": "Local folder path where matching issue files are stored. Use {workspaceDir} as a placeholder for the workspace root."
+              }
+            }
+          }
+        },
+        "issuesAsCode.pullInterval": {
+          "type": "number",
+          "default": 30,
+          "description": "Minutes between automatic pulls from GitHub.",
+          "scope": "resource"
+        },
+        "issuesAsCode.syncStatePath": {
+          "type": "string",
+          "default": "{workspaceDir}/.issues/sync-state.json",
+          "description": "Path to the local sync state file that tracks the last-synced timestamp per issue. Defaults to .issues/sync-state.json in the workspace. Use {workspaceDir} as a placeholder for the workspace root. This file is machine-local and should be gitignored.",
+          "scope": "resource"
+        },
+        "issuesAsCode.showSyncState": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the sync state file in the VS Code Explorer. When false (default), the file is hidden via files.exclude.",
+          "scope": "resource"
+        },
+        "issuesAsCode.showSyncIcons": {
+          "type": "object",
+          "description": "Controls which sync status icons are shown on issue files in the Explorer.",
+          "scope": "resource",
+          "properties": {
+            "newIssue": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show 'A' badge on new issues not yet pushed to remote."
+            },
+            "modified": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show 'M' badge on locally modified issues not yet pushed to remote."
+            },
+            "synchronized": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show '✓' badge on issues whose local copy matches the remote."
+            }
+          },
+          "default": {
+            "newIssue": true,
+            "modified": true,
+            "synchronized": true
+          }
+        },
+        "issuesAsCode.enable_experimental_projects": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable experimental GitHub Projects v2 metadata sync. Requires reloading VS Code to take effect.",
+          "scope": "resource"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@octokit/rest": "^20.0.0",
+    "gray-matter": "^4.0.3"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.0.0",
+    "@types/mocha": "^10.0.0",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^2.3.0",
+    "glob": "^8.0.0",
+    "mocha": "^10.2.0",
+    "typescript": "^5.3.0"
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "test": "node ./out/test/runTests.js",
+    "test:unit": "mocha --ui tdd out/test/fileManager.test.js out/test/configManager.test.js out/test/syncManager.test.js out/test/syncStateManager.test.js out/test/issueDecorationProvider.test.js"
+  }
+}
