@@ -24,11 +24,15 @@ Synchronize GitHub issues to a local `.issues/` folder — edit them as Markdown
 
 ## Getting Started
 
-1. **Install** the extension from the VS Code Marketplace.
-2. **Open** a workspace that contains a GitHub repository.
-3. **Sign in** to GitHub when prompted (uses VS Code's built-in GitHub authentication).
-4. Issues matching your configured targets are downloaded automatically.
-   - If no `issueSync.syncTargets` are configured, the extension auto-detects the workspace repository and uses sensible defaults (open issues + issues closed in the last 10 days).
+> [!NOTE]
+> This is not yet available on the VS Code Marketplace.
+> It will be added after more rigorous testing.
+
+<!-- 1. **Install** the extension from the VS Code Marketplace. -->
+<!-- 2. **Open** a workspace that contains a GitHub repository. -->
+<!-- 3. **Sign in** to GitHub when prompted (uses VS Code's built-in GitHub authentication). -->
+<!-- 4. Issues matching your configured targets are downloaded automatically. -->
+   <!-- - If no `issuesAsCode.syncTargets` are configured, the extension auto-detects the workspace repository and uses sensible defaults (open issues + issues closed in the last 10 days). -->
 
 ## Configuration
 
