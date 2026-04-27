@@ -1,5 +1,9 @@
 import * as assert from 'assert';
-import { isConflict, inferNewIssueTitle, classifyDiff, generateConflictContent, hasConflictMarkers } from '../src/syncManager';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { isConflict, inferNewIssueTitle, classifyDiff, generateConflictContent, hasConflictMarkers, reconcileTargetChanges } from '../src/syncManager';
+import { SyncStateManager, type RemoteIssueInfo } from '../src/syncStateManager';
 
 // ---------------------------------------------------------------------------
 // Section 1: Debounce timer behavior
@@ -378,5 +382,268 @@ suite('syncManager \u2013 hasConflictMarkers', () => {
 
     // Act / Assert
     assert.strictEqual(hasConflictMarkers(content), true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 7: reconcileTargetChanges – move and delete
+// ---------------------------------------------------------------------------
+
+function makeTempDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'reconcile-test-'));
+}
+
+function makeRemoteInfo(overrides: Partial<RemoteIssueInfo> = {}): RemoteIssueInfo {
+  return {
+    number: 1,
+    state: 'open',
+    updated_at: '2024-01-15T10:00:00Z',
+    closed_at: null,
+    html_url: 'https://github.com/owner/repo/issues/1',
+    ...overrides,
+  };
+}
+
+suite('syncManager – reconcileTargetChanges (move)', () => {
+  test('moves issue files to the new location', async () => {
+    // Arrange
+    const root = makeTempDir();
+    const oldLocation = path.join(root, 'old');
+    const newLocation = path.join(root, 'new');
+    fs.mkdirSync(oldLocation, { recursive: true });
+
+    const statePath = path.join(root, 'sync-state.json');
+    const stateManager = new SyncStateManager(statePath);
+    await stateManager.load();
+
+    const filePath = path.join(oldLocation, '1-issue.md');
+    fs.writeFileSync(filePath, 'content', 'utf8');
+    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
+
+    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: oldLocation }];
+    const newTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: newLocation }];
+
+    // Act
+    await reconcileTargetChanges(oldTargets, newTargets, stateManager);
+
+    // Assert – file exists at new location
+    assert.ok(fs.existsSync(path.join(newLocation, '1-issue.md')), 'file should be at new location');
+  });
+
+  test('removes issue files from the old location after move', async () => {
+    // Arrange
+    const root = makeTempDir();
+    const oldLocation = path.join(root, 'old');
+    const newLocation = path.join(root, 'new');
+    fs.mkdirSync(oldLocation, { recursive: true });
+
+    const statePath = path.join(root, 'sync-state.json');
+    const stateManager = new SyncStateManager(statePath);
+    await stateManager.load();
+
+    const filePath = path.join(oldLocation, '1-issue.md');
+    fs.writeFileSync(filePath, 'content', 'utf8');
+    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
+
+    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: oldLocation }];
+    const newTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: newLocation }];
+
+    // Act
+    await reconcileTargetChanges(oldTargets, newTargets, stateManager);
+
+    // Assert – old file gone
+    assert.ok(!fs.existsSync(filePath), 'old file should be removed after move');
+  });
+
+  test('state is updated to new location key after move', async () => {
+    // Arrange
+    const root = makeTempDir();
+    const oldLocation = path.join(root, 'old');
+    const newLocation = path.join(root, 'new');
+    fs.mkdirSync(oldLocation, { recursive: true });
+
+    const statePath = path.join(root, 'sync-state.json');
+    const stateManager = new SyncStateManager(statePath);
+    await stateManager.load();
+
+    const filePath = path.join(oldLocation, '1-issue.md');
+    fs.writeFileSync(filePath, 'content', 'utf8');
+    const remote = makeRemoteInfo({ number: 1, updated_at: '2024-03-01T00:00:00Z' });
+    await stateManager.setSyncedAt(filePath, remote);
+
+    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: oldLocation }];
+    const newTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: newLocation }];
+
+    // Act
+    await reconcileTargetChanges(oldTargets, newTargets, stateManager);
+
+    // Assert – state uses new file path and preserves synced_at
+    const newFilePath = path.join(newLocation, '1-issue.md');
+    assert.strictEqual(stateManager.getSyncedAt(newFilePath), '2024-03-01T00:00:00Z');
+    assert.strictEqual(stateManager.getSyncedAt(filePath), undefined);
+  });
+
+  test('handles crash recovery: source file already gone before move', async () => {
+    // Arrange – simulate a crash where the file was already moved but state was not updated
+    const root = makeTempDir();
+    const oldLocation = path.join(root, 'old');
+    const newLocation = path.join(root, 'new');
+    fs.mkdirSync(oldLocation, { recursive: true });
+    fs.mkdirSync(newLocation, { recursive: true });
+
+    const statePath = path.join(root, 'sync-state.json');
+    const stateManager = new SyncStateManager(statePath);
+    await stateManager.load();
+
+    // State still points to old file path, but file is already at new location
+    const oldFilePath = path.join(oldLocation, '1-issue.md');
+    const newFilePath = path.join(newLocation, '1-issue.md');
+    fs.writeFileSync(newFilePath, 'content', 'utf8');
+    await stateManager.setSyncedAt(oldFilePath, makeRemoteInfo({ number: 1 }));
+
+    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: oldLocation }];
+    const newTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: newLocation }];
+
+    // Act – should not throw even though source is missing
+    await assert.doesNotReject(reconcileTargetChanges(oldTargets, newTargets, stateManager));
+
+    // Assert – old state entry gone
+    assert.strictEqual(stateManager.getSyncedAt(oldFilePath), undefined);
+  });
+
+  test('no-op when old and new locations are the same', async () => {
+    // Arrange
+    const root = makeTempDir();
+    const location = path.join(root, 'issues');
+    fs.mkdirSync(location, { recursive: true });
+
+    const statePath = path.join(root, 'sync-state.json');
+    const stateManager = new SyncStateManager(statePath);
+    await stateManager.load();
+
+    const filePath = path.join(location, '1-issue.md');
+    fs.writeFileSync(filePath, 'content', 'utf8');
+    await stateManager.setSyncedAt(filePath, makeRemoteInfo());
+
+    const targets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location }];
+
+    // Act
+    await reconcileTargetChanges(targets, targets, stateManager);
+
+    // Assert – file still present at original location, state unchanged
+    assert.ok(fs.existsSync(filePath));
+    assert.strictEqual(stateManager.getSyncedAt(filePath), '2024-01-15T10:00:00Z');
+  });
+});
+
+suite('syncManager – reconcileTargetChanges (delete)', () => {
+  test('deletes issue files when target is removed', async () => {
+    // Arrange
+    const root = makeTempDir();
+    const location = path.join(root, 'issues');
+    fs.mkdirSync(location, { recursive: true });
+
+    const statePath = path.join(root, 'sync-state.json');
+    const stateManager = new SyncStateManager(statePath);
+    await stateManager.load();
+
+    const filePath = path.join(location, '1-issue.md');
+    fs.writeFileSync(filePath, 'content', 'utf8');
+    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
+
+    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location }];
+    const newTargets: typeof oldTargets = [];
+
+    // Act
+    await reconcileTargetChanges(oldTargets, newTargets, stateManager);
+
+    // Assert – file deleted
+    assert.ok(!fs.existsSync(filePath), 'issue file should be deleted');
+  });
+
+  test('removes target entries from sync state when target is removed', async () => {
+    // Arrange
+    const root = makeTempDir();
+    const location = path.join(root, 'issues');
+    fs.mkdirSync(location, { recursive: true });
+
+    const statePath = path.join(root, 'sync-state.json');
+    const stateManager = new SyncStateManager(statePath);
+    await stateManager.load();
+
+    const filePath = path.join(location, '1-issue.md');
+    fs.writeFileSync(filePath, 'content', 'utf8');
+    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
+
+    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location }];
+    const newTargets: typeof oldTargets = [];
+
+    // Act
+    await reconcileTargetChanges(oldTargets, newTargets, stateManager);
+
+    // Assert – state entry removed
+    assert.strictEqual(stateManager.getSyncedAt(filePath), undefined);
+    assert.strictEqual(stateManager.getFilesUnderLocation(location).size, 0);
+  });
+
+  test('handles crash recovery: file already deleted before state cleanup', async () => {
+    // Arrange
+    const root = makeTempDir();
+    const location = path.join(root, 'issues');
+    fs.mkdirSync(location, { recursive: true });
+
+    const statePath = path.join(root, 'sync-state.json');
+    const stateManager = new SyncStateManager(statePath);
+    await stateManager.load();
+
+    // State points to a file that no longer exists (already deleted in a prior partial run)
+    const filePath = path.join(location, '1-issue.md');
+    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
+
+    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location }];
+    const newTargets: typeof oldTargets = [];
+
+    // Act – should not throw even though the file is missing
+    await assert.doesNotReject(reconcileTargetChanges(oldTargets, newTargets, stateManager));
+
+    // Assert – state cleaned up
+    assert.strictEqual(stateManager.getSyncedAt(filePath), undefined);
+  });
+
+  test('does not affect targets that are still in the new config', async () => {
+    // Arrange
+    const root = makeTempDir();
+    const keptLocation = path.join(root, 'kept');
+    const removedLocation = path.join(root, 'removed');
+    fs.mkdirSync(keptLocation, { recursive: true });
+    fs.mkdirSync(removedLocation, { recursive: true });
+
+    const statePath = path.join(root, 'sync-state.json');
+    const stateManager = new SyncStateManager(statePath);
+    await stateManager.load();
+
+    const keptFile = path.join(keptLocation, '1-kept.md');
+    const removedFile = path.join(removedLocation, '2-removed.md');
+    fs.writeFileSync(keptFile, 'kept', 'utf8');
+    fs.writeFileSync(removedFile, 'removed', 'utf8');
+    await stateManager.setSyncedAt(keptFile, makeRemoteInfo({ number: 1 }));
+    await stateManager.setSyncedAt(removedFile, makeRemoteInfo({ number: 2 }));
+
+    const oldTargets = [
+      { repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: keptLocation },
+      { repository_url: 'https://github.com/owner/repo', query: 'is:issue state:closed', location: removedLocation },
+    ];
+    const newTargets = [oldTargets[0]];
+
+    // Act
+    await reconcileTargetChanges(oldTargets, newTargets, stateManager);
+
+    // Assert – kept target unaffected
+    assert.ok(fs.existsSync(keptFile), 'kept file should still exist');
+    assert.strictEqual(stateManager.getSyncedAt(keptFile), '2024-01-15T10:00:00Z');
+
+    // Assert – removed target deleted
+    assert.ok(!fs.existsSync(removedFile), 'removed file should be deleted');
+    assert.strictEqual(stateManager.getSyncedAt(removedFile), undefined);
   });
 });

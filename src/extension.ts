@@ -1,11 +1,19 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { detectRepo, getConfig, ensureGitignore, defaultSyncTargets, repoInfoFromTarget } from './configManager';
+import { detectRepo, getConfig, ensureGitignore, defaultSyncTargets, repoInfoFromTarget, type SyncTarget } from './configManager';
 import { GitHubClient } from './githubClient';
-import { SyncManager } from './syncManager';
+import { SyncManager, reconcileTargetChanges } from './syncManager';
 import { SyncStateManager } from './syncStateManager';
 
 const syncManagers: SyncManager[] = [];
+
+// Serializes reinitializations so rapid config-change events don't overlap.
+// Each call is chained after the previous one; all callers await the same chain tail.
+let reinitializeChain: Promise<void> = Promise.resolve();
+
+// Delays reinitialize after a config change so mid-edit partial values are ignored.
+const CONFIG_CHANGE_DEBOUNCE_MS = 3000;
+let configChangeDebounceTimer: NodeJS.Timeout | null = null;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   await reinitializeAllFolders(context);
@@ -78,20 +86,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       void vscode.window.showInformationMessage(`Added default open issues sync target for ${repoInfo.owner}/${repoInfo.repo}.`);
     }),
-    vscode.workspace.onDidChangeConfiguration(async (event) => {
+    vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('issueSync')) {
-        await reinitializeAllFolders(context);
+        if (configChangeDebounceTimer) {
+          clearTimeout(configChangeDebounceTimer);
+        }
+        configChangeDebounceTimer = setTimeout(() => {
+          configChangeDebounceTimer = null;
+          void reinitializeAllFolders(context);
+        }, CONFIG_CHANGE_DEBOUNCE_MS);
       }
     }),
   );
 }
 
 async function reinitializeAllFolders(context: vscode.ExtensionContext): Promise<void> {
+  reinitializeChain = reinitializeChain
+    .catch(() => {
+      /* ignore errors from prior run */
+    })
+    .then(() => doReinitializeAllFolders(context));
+  return reinitializeChain;
+}
+
+async function doReinitializeAllFolders(context: vscode.ExtensionContext): Promise<void> {
+  // Capture old targets and the shared state manager per folder before tearing down
+  const oldStateByFolder = new Map<string, { targets: SyncTarget[]; stateManager: SyncStateManager }>();
+  for (const manager of syncManagers) {
+    const fsPath = manager.workspaceFolderFsPath;
+    if (!oldStateByFolder.has(fsPath)) {
+      oldStateByFolder.set(fsPath, { targets: [], stateManager: manager.stateManager });
+    }
+    oldStateByFolder.get(fsPath)!.targets.push(manager.target);
+  }
+
   syncManagers.forEach((m) => m.dispose());
   syncManagers.length = 0;
 
   const folders = vscode.workspace.workspaceFolders ?? [];
   for (const folder of folders) {
+    // Reconcile moved/removed targets before starting new managers
+    const old = oldStateByFolder.get(folder.uri.fsPath);
+    if (old && old.targets.length > 0) {
+      const newConfig = getConfig(folder.uri.fsPath, folder);
+      let newTargets = newConfig.syncTargets;
+      if (newTargets.length === 0) {
+        const repoInfo = await detectRepo(folder);
+        if (repoInfo) {
+          newTargets = defaultSyncTargets(repoInfo.owner, repoInfo.repo, folder.uri.fsPath);
+        }
+      }
+      await reconcileTargetChanges(old.targets, newTargets, old.stateManager);
+    }
+
     await activateFolder(folder, context);
   }
 }
@@ -129,6 +176,15 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
   await stateManager.load();
   stateManager.watchForDeletion();
   context.subscriptions.push({ dispose: () => stateManager.dispose() });
+
+  // Remove state entries for files no longer under any active target location (handles cross-session stale entries)
+  const activeLocations = new Set(targets.map((t) => t.location));
+  for (const filePath of stateManager.getKnownFilePaths()) {
+    const isActive = [...activeLocations].some((loc) => filePath.startsWith(loc + path.sep));
+    if (!isActive) {
+      await stateManager.deleteEntry(filePath);
+    }
+  }
 
   for (const target of targets) {
     const repoInfo = repoInfoFromTarget(target);

@@ -28,15 +28,20 @@ export class SyncManager {
   private debounceTimers = new Map<string, NodeJS.Timeout>();
   private pullTimer: NodeJS.Timeout | null = null;
   private watcher: vscodeType.FileSystemWatcher | null = null;
+  private isDisposed = false;
 
   constructor(
     private client: GitHubClient,
     private config: IssueConfig,
-    private target: SyncTarget,
+    readonly target: SyncTarget,
     private workspaceFolder: vscodeType.WorkspaceFolder,
     private context: vscodeType.ExtensionContext,
-    private stateManager: SyncStateManager,
+    readonly stateManager: SyncStateManager,
   ) {}
+
+  get workspaceFolderFsPath(): string {
+    return this.workspaceFolder.uri.fsPath;
+  }
 
   /** Returns true if the given file path is managed by this sync manager. */
   ownsFile(filePath: string): boolean {
@@ -76,6 +81,7 @@ export class SyncManager {
 
   /** Stop: dispose watcher, clear timers. */
   dispose(): void {
+    this.isDisposed = true;
     this.watcher?.dispose();
     this.watcher = null;
 
@@ -104,10 +110,16 @@ export class SyncManager {
 
   /** Pull issues for this target. */
   async pullTarget(): Promise<void> {
+    if (this.isDisposed) {
+      return;
+    }
     const resolved = resolveQuery(this.target.query);
     const issues = await this.client.listIssues(resolved);
 
     for (const issue of issues) {
+      if (this.isDisposed) {
+        return;
+      }
       const expectedFileName = issueToFileName(issue, this.config.fileNaming) + '.md';
       const expectedPath = path.join(this.target.location, expectedFileName);
 
@@ -159,15 +171,13 @@ export class SyncManager {
     if (kind === 'identical') {
       // Update state entry so the state file always has a complete record of all tracked issues
       await this.stateManager.setSyncedAt(
-        this.target.location, //
-        issue.number,
-        localPath,
+        localPath, //
         issueToRemoteInfo(issue),
       );
       return;
     }
 
-    if (!isConflict(issue.updated_at, this.stateManager.getSyncedAt(this.target.location, issue.number))) {
+    if (!isConflict(issue.updated_at, this.stateManager.getSyncedAt(localPath))) {
       // Cloud hasn't changed since last sync — local edits are pending push; leave them alone
       return;
     }
@@ -194,7 +204,7 @@ export class SyncManager {
       // Existing issue — check for conflicts first
       const cloud = await this.client.getIssue(frontmatter.number);
 
-      if (isConflict(cloud.updated_at, this.stateManager.getSyncedAt(this.target.location, frontmatter.number!))) {
+      if (isConflict(cloud.updated_at, this.stateManager.getSyncedAt(filePath))) {
         await this.handleConflict(filePath, cloud);
         return;
       }
@@ -292,9 +302,7 @@ export class SyncManager {
     try {
       await fs.promises.writeFile(localPath, conflictContent, 'utf8');
       await this.stateManager.setSyncedAt(
-        this.target.location, //
-        issue.number,
-        localPath,
+        localPath, //
         issueToRemoteInfo(issue),
       );
     } finally {
@@ -333,9 +341,7 @@ export class SyncManager {
       };
       await writeIssueFile(filePath, frontmatter, overrideBody ?? issue.body ?? '');
       await this.stateManager.setSyncedAt(
-        this.target.location, //
-        issue.number,
-        filePath,
+        filePath, //
         issueToRemoteInfo(issue),
       );
     } finally {
@@ -360,11 +366,12 @@ export class SyncManager {
     }
   }
 
-  /** Deletes a file while suppressing watcher events for that path. */
+  /** Deletes a file while suppressing watcher events for that path, and removes its state entry. */
   private async unlinkSuppressed(filePath: string): Promise<void> {
     this.suppress(filePath, 1);
     try {
       await fs.promises.unlink(filePath);
+      await this.stateManager.deleteEntry(filePath);
     } catch {
       /* ignore if already gone */
     } finally {
@@ -518,4 +525,117 @@ export function inferNewIssueTitle(filePath: string, frontmatterTitle: string, b
   }
 
   return path.basename(filePath, path.extname(filePath)).trim() || 'New issue';
+}
+
+// ---------------------------------------------------------------------------
+// Target reconciliation (location changes and removals)
+// ---------------------------------------------------------------------------
+
+/** Identity key for a sync target: combination of repository URL and query. */
+function targetIdentity(target: SyncTarget): string {
+  return `${target.repository_url}||${target.query.trim()}`;
+}
+
+/**
+ * Reconciles the file system and sync state when sync targets change between config reloads.
+ *
+ * - Moved targets (same repository_url + query, different location): issue files are moved to
+ *   the new location and the sync state is updated so no re-download is triggered.
+ * - Removed targets (not present in new config): issue files are deleted and their state
+ *   entries are removed.
+ *
+ * Safe from mid-process corruption: a crash leaves orphaned files at worst (no data loss).
+ * Orphans in a new location are harmless; orphans in an old location will be ignored by
+ * the new manager and can be cleaned up on the next reconciliation.
+ */
+export async function reconcileTargetChanges(
+  oldTargets: SyncTarget[], //
+  newTargets: SyncTarget[],
+  stateManager: SyncStateManager,
+): Promise<void> {
+  const oldByIdentity = new Map(oldTargets.map((t) => [targetIdentity(t), t]));
+  const newByIdentity = new Map(newTargets.map((t) => [targetIdentity(t), t]));
+
+  // Move files for targets whose location changed
+  for (const [id, oldTarget] of oldByIdentity) {
+    const newTarget = newByIdentity.get(id);
+    if (newTarget && newTarget.location !== oldTarget.location) {
+      await moveTargetFiles(oldTarget, newTarget, stateManager);
+    }
+  }
+
+  // Delete files for targets that were removed entirely
+  for (const [id, oldTarget] of oldByIdentity) {
+    if (!newByIdentity.has(id)) {
+      await deleteTargetFiles(oldTarget, stateManager);
+    }
+  }
+}
+
+/** Moves all tracked issue files from the old target location to the new one, updating state. */
+async function moveTargetFiles(
+  oldTarget: SyncTarget, //
+  newTarget: SyncTarget,
+  stateManager: SyncStateManager,
+): Promise<void> {
+  const entries = stateManager.getFilesUnderLocation(oldTarget.location);
+  if (entries.size === 0) {
+    return;
+  }
+
+  await fs.promises.mkdir(newTarget.location, { recursive: true });
+
+  for (const [oldFilePath, entry] of entries) {
+    const newFilePath = path.join(newTarget.location, path.basename(oldFilePath));
+
+    // Copy to new location; source may already be gone if this is crash recovery
+    try {
+      await fs.promises.copyFile(oldFilePath, newFilePath);
+    } catch {
+      /* source already moved in a prior partial run */
+    }
+
+    // Update state: add new entry, remove old entry
+    await stateManager.setSyncedAt(newFilePath, entry.remote);
+    await stateManager.deleteEntry(oldFilePath);
+
+    // Remove the old file
+    try {
+      await fs.promises.unlink(oldFilePath);
+    } catch {
+      /* already gone */
+    }
+  }
+
+  // Best-effort: remove the now-empty old directory
+  try {
+    await fs.promises.rmdir(oldTarget.location);
+  } catch {
+    /* not empty or already removed */
+  }
+}
+
+/** Deletes all tracked issue files for a removed target and cleans up their state entries. */
+async function deleteTargetFiles(
+  oldTarget: SyncTarget, //
+  stateManager: SyncStateManager,
+): Promise<void> {
+  const entries = stateManager.getFilesUnderLocation(oldTarget.location);
+
+  for (const filePath of entries.keys()) {
+    try {
+      await fs.promises.unlink(filePath);
+    } catch {
+      /* already gone */
+    }
+  }
+
+  await stateManager.removeFilesUnderLocation(oldTarget.location);
+
+  // Best-effort: remove the now-empty directory
+  try {
+    await fs.promises.rmdir(oldTarget.location);
+  } catch {
+    /* not empty or already removed */
+  }
 }
