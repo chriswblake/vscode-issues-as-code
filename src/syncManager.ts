@@ -3,14 +3,18 @@ import * as fs from 'fs';
 import type * as vscodeType from 'vscode';
 import type { GitHubClient, IssueData } from './githubClient';
 import {
-  readIssueFile,
+  readIssueFile, //
   writeIssueFile,
   issueToFileName,
   findFileByNumber,
   serializeIssueFile,
   type IssueFrontmatter,
 } from './fileManager';
-import { type SyncTarget, type IssueConfig, resolveQuery } from './configManager';
+import {
+  type SyncTarget, //
+  type IssueConfig,
+  resolveQuery,
+} from './configManager';
 
 // Lazy vscode import so unit tests can stub it out
 function vscode(): typeof vscodeType {
@@ -29,7 +33,7 @@ export class SyncManager {
     private config: IssueConfig,
     private target: SyncTarget,
     private workspaceFolder: vscodeType.WorkspaceFolder,
-    private context: vscodeType.ExtensionContext
+    private context: vscodeType.ExtensionContext,
   ) {}
 
   /** Returns true if the given file path is managed by this sync manager. */
@@ -42,22 +46,27 @@ export class SyncManager {
   async start(): Promise<void> {
     const vs = vscode();
     const locationRelative = path.relative(
-      this.workspaceFolder.uri.fsPath,
-      this.target.location
+      this.workspaceFolder.uri.fsPath, //
+      this.target.location,
     );
 
     this.watcher = vs.workspace.createFileSystemWatcher(
-      new vs.RelativePattern(this.workspaceFolder, `${locationRelative}/**/*.md`)
+      new vs.RelativePattern(
+        this.workspaceFolder, //
+        `${locationRelative}/**/*.md`,
+      ),
     );
 
-    this.watcher.onDidChange(uri => this.onFileChanged(uri));
-    this.watcher.onDidCreate(uri => this.handleNewFile(uri));
+    this.watcher.onDidChange((uri) => this.onFileChanged(uri));
+    this.watcher.onDidCreate((uri) => this.handleNewFile(uri));
 
     this.context.subscriptions.push(this.watcher);
 
     // Start periodic pull
     const intervalMs = this.config.pullInterval * 60 * 1000;
-    this.pullTimer = setInterval(() => { void this.pullAll(); }, intervalMs);
+    this.pullTimer = setInterval(() => {
+      void this.pullAll();
+    }, intervalMs);
 
     // Initial pull on activation
     await this.pullAll();
@@ -85,7 +94,8 @@ export class SyncManager {
       await this.pullTarget();
     } catch (err) {
       console.error(
-        `[issueSync] pullTarget "${this.target.repository_url}" failed:`, err
+        `[issueSync] pullTarget "${this.target.repository_url}" failed:`, //
+        err,
       );
     }
   }
@@ -100,7 +110,11 @@ export class SyncManager {
       const expectedPath = path.join(this.target.location, expectedFileName);
 
       // Look for any existing file that tracks this issue number
-      const existingPath = await findFileByNumber(this.target.location, issue.number, this.config.fileNaming);
+      const existingPath = await findFileByNumber(
+        this.target.location, //
+        issue.number,
+        this.config.fileNaming,
+      );
 
       if (existingPath !== null && existingPath !== expectedPath) {
         // Title changed on GitHub — write to new path and remove the old file
@@ -151,7 +165,9 @@ export class SyncManager {
   /** Debounced push — called from file watcher. */
   debouncedPush(filePath: string): void {
     const existing = this.debounceTimers.get(filePath);
-    if (existing) { clearTimeout(existing); }
+    if (existing) {
+      clearTimeout(existing);
+    }
 
     const timer = setTimeout(() => {
       this.debounceTimers.delete(filePath);
@@ -202,16 +218,16 @@ export class SyncManager {
     const tempUri = vs.Uri.file(tempPath);
 
     await vs.commands.executeCommand(
-      'vscode.diff',
+      'vscode.diff', //
       localUri,
       tempUri,
-      `Issue #${cloudIssue.number} — Local vs Cloud`
+      `Issue #${cloudIssue.number} — Local vs Cloud`,
     );
 
     const choice = await vs.window.showInformationMessage(
-      `Issue #${cloudIssue.number} has been updated on GitHub. Which version do you want to keep?`,
+      `Issue #${cloudIssue.number} has been updated on GitHub. Which version do you want to keep?`, //
       'Accept Cloud',
-      'Keep Local'
+      'Keep Local',
     );
 
     if (choice === 'Accept Cloud') {
@@ -234,29 +250,31 @@ export class SyncManager {
     // Remove temp file
     try {
       await fs.promises.unlink(tempPath);
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     void cloudContent; // used above
   }
 
   /** Handles a newly created .md file in the issues directory. */
   private async handleNewFile(uri: vscodeType.Uri): Promise<void> {
-    if (this.isSuppressed(uri.fsPath)) { return; }
+    if (this.isSuppressed(uri.fsPath)) {
+      return;
+    }
     // Debounce to let the user finish writing
     this.debouncedPush(uri.fsPath);
   }
 
   private onFileChanged(uri: vscodeType.Uri): void {
-    if (this.isSuppressed(uri.fsPath)) { return; }
+    if (this.isSuppressed(uri.fsPath)) {
+      return;
+    }
     this.debouncedPush(uri.fsPath);
   }
 
   /** Writes an issue file while suppressing watcher events for it. */
-  private async writeIssueSuppressed(
-    filePath: string,
-    issue: IssueData,
-    overrideBody?: string
-  ): Promise<void> {
+  private async writeIssueSuppressed(filePath: string, issue: IssueData, overrideBody?: string): Promise<void> {
     this.suppress(filePath, 1);
     try {
       const frontmatter: IssueFrontmatter = {
@@ -296,7 +314,9 @@ export class SyncManager {
     this.suppress(filePath, 1);
     try {
       await fs.promises.unlink(filePath);
-    } catch { /* ignore if already gone */ } finally {
+    } catch {
+      /* ignore if already gone */
+    } finally {
       this.suppress(filePath, -1);
     }
   }

@@ -3,7 +3,9 @@ import * as vscode from 'vscode';
 
 suite('Extension – integration tests', () => {
   test('extension activates without errors', async () => {
-    const ext = vscode.extensions.getExtension('undefined_publisher.vscode-issues-as-code');
+    const ext = vscode.extensions.getExtension(
+      'undefined_publisher.vscode-issues-as-code',
+    );
     if (ext && !ext.isActive) {
       await ext.activate();
     }
@@ -15,7 +17,7 @@ suite('Extension – integration tests', () => {
     const commands = await vscode.commands.getCommands(true);
     assert.ok(
       commands.includes('issueSync.pullNow'),
-      'issueSync.pullNow should be registered'
+      'issueSync.pullNow should be registered',
     );
   });
 
@@ -23,7 +25,7 @@ suite('Extension – integration tests', () => {
     const commands = await vscode.commands.getCommands(true);
     assert.ok(
       commands.includes('issueSync.pushNow'),
-      'issueSync.pushNow should be registered'
+      'issueSync.pushNow should be registered',
     );
   });
 
@@ -31,7 +33,7 @@ suite('Extension – integration tests', () => {
     const commands = await vscode.commands.getCommands(true);
     assert.ok(
       commands.includes('issueSync.refresh'),
-      'issueSync.refresh should be registered'
+      'issueSync.refresh should be registered',
     );
   });
 });

@@ -15,7 +15,9 @@ suite('syncManager – debounce timer behavior', () => {
     return {
       debouncedPush(filePath: string) {
         const existing = timers.get(filePath);
-        if (existing) { clearTimeout(existing); }
+        if (existing) {
+          clearTimeout(existing);
+        }
         const timer = setTimeout(() => {
           timers.delete(filePath);
           onFire(filePath);
@@ -23,15 +25,17 @@ suite('syncManager – debounce timer behavior', () => {
         timers.set(filePath, timer);
       },
       dispose() {
-        for (const t of timers.values()) { clearTimeout(t); }
+        for (const t of timers.values()) {
+          clearTimeout(t);
+        }
         timers.clear();
       },
     };
   }
 
-  test('multiple rapid saves result in a single push', done => {
+  test('multiple rapid saves result in a single push', (done) => {
     const calls: string[] = [];
-    const debouncer = makeDebouncer(50, p => calls.push(p));
+    const debouncer = makeDebouncer(50, (p) => calls.push(p));
 
     debouncer.debouncedPush('/issues/1.md');
     debouncer.debouncedPush('/issues/1.md');
@@ -50,9 +54,9 @@ suite('syncManager – debounce timer behavior', () => {
     }, 150);
   });
 
-  test('separate files get independent debounce timers', done => {
+  test('separate files get independent debounce timers', (done) => {
     const calls: string[] = [];
-    const debouncer = makeDebouncer(50, p => calls.push(p));
+    const debouncer = makeDebouncer(50, (p) => calls.push(p));
 
     debouncer.debouncedPush('/issues/1.md');
     debouncer.debouncedPush('/issues/2.md');
@@ -70,9 +74,9 @@ suite('syncManager – debounce timer behavior', () => {
     }, 150);
   });
 
-  test('push does not fire if timer is cleared before delay', done => {
+  test('push does not fire if timer is cleared before delay', (done) => {
     const calls: string[] = [];
-    const debouncer = makeDebouncer(100, p => calls.push(p));
+    const debouncer = makeDebouncer(100, (p) => calls.push(p));
 
     debouncer.debouncedPush('/issues/1.md');
     // Dispose immediately before the timer fires
@@ -95,21 +99,21 @@ suite('syncManager – debounce timer behavior', () => {
 suite('syncManager – conflict detection', () => {
   test('returns true when cloud is newer than local synced_at', () => {
     assert.strictEqual(
-      isConflict('2026-04-22T12:00:00Z', '2026-04-22T10:00:00Z'),
-      true
+      isConflict('2026-04-22T12:00:00Z', '2026-04-22T10:00:00Z'), //
+      true,
     );
   });
 
   test('returns false when cloud and local have the same timestamp', () => {
     assert.strictEqual(
-      isConflict('2026-04-22T10:00:00Z', '2026-04-22T10:00:00Z'),
+      isConflict('2026-04-22T10:00:00Z', '2026-04-22T10:00:00Z'), //
       false
     );
   });
 
   test('returns false when local is newer than cloud', () => {
     assert.strictEqual(
-      isConflict('2026-04-22T08:00:00Z', '2026-04-22T10:00:00Z'),
+      isConflict('2026-04-22T08:00:00Z', '2026-04-22T10:00:00Z'), //
       false
     );
   });

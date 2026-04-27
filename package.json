@@ -6,9 +6,12 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Other"],
-  "activationEvents": ["onStartupFinished"],
-  "main": "./out/extension.js",
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "commands": [
       {
@@ -46,7 +49,11 @@
           "scope": "resource",
           "items": {
             "type": "object",
-            "required": ["repository_url", "query", "location"],
+            "required": [
+              "repository_url",
+              "query",
+              "location"
+            ],
             "properties": {
               "repository_url": {
                 "type": "string",

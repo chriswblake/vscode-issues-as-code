@@ -26,12 +26,12 @@ Synchronize GitHub issues to a local `.issues/` folder — edit them as Markdown
 
 All settings have `"scope": "resource"` so they can be set per workspace folder.
 
-| Setting | Type | Default | Description |
-|---|---|---|---|
-| `issueSync.fileNaming` | `string` | `{issue-num}-{issue-title}` | Template for issue file names |
-| `issueSync.autosaveDelay` | `number` | `60` | Seconds to wait after last save before pushing |
-| `issueSync.syncTargets` | `array` | `[]` | Repositories and queries to sync (see below) |
-| `issueSync.pullInterval` | `number` | `30` | Minutes between automatic pulls |
+| Setting                   | Type     | Default                     | Description                                    |
+| ------------------------- | -------- | --------------------------- | ---------------------------------------------- |
+| `issueSync.fileNaming`    | `string` | `{issue-num}-{issue-title}` | Template for issue file names                  |
+| `issueSync.autosaveDelay` | `number` | `60`                        | Seconds to wait after last save before pushing |
+| `issueSync.syncTargets`   | `array`  | `[]`                        | Repositories and queries to sync (see below)   |
+| `issueSync.pullInterval`  | `number` | `30`                        | Minutes between automatic pulls                |
 
 ### `issueSync.syncTargets`
 
@@ -68,4 +68,3 @@ On activation the extension reads `issueSync.syncTargets` and creates one sync m
 ## Documentation
 
 See [docs/how-to-develop.md](docs/how-to-develop.md) for the developer guide.
-

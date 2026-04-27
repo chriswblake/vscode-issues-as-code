@@ -48,16 +48,16 @@ npm run watch
 
 ## 4. Project Structure
 
-| Path | Purpose |
-|---|---|
-| `src/extension.ts` | Entry point — `activate` / `deactivate` |
-| `src/configManager.ts` | Configuration helpers, repo detection, `resolveQuery` |
-| `src/githubClient.ts` | Octokit wrapper — REST + GraphQL calls |
-| `src/fileManager.ts` | Read / write / serialize `.md` issue files |
-| `src/syncManager.ts` | Orchestration — watcher, debounce, pull timer, conflict |
-| `test/` | Mocha unit and integration tests |
-| `docs/` | Developer documentation |
-| `.vscode/` | Launch and task configurations |
+| Path                   | Purpose                                                 |
+| ---------------------- | ------------------------------------------------------- |
+| `src/extension.ts`     | Entry point — `activate` / `deactivate`                 |
+| `src/configManager.ts` | Configuration helpers, repo detection, `resolveQuery`   |
+| `src/githubClient.ts`  | Octokit wrapper — REST + GraphQL calls                  |
+| `src/fileManager.ts`   | Read / write / serialize `.md` issue files              |
+| `src/syncManager.ts`   | Orchestration — watcher, debounce, pull timer, conflict |
+| `test/`                | Mocha unit and integration tests                        |
+| `docs/`                | Developer documentation                                 |
+| `.vscode/`             | Launch and task configurations                          |
 
 ## 5. Common Extension Tasks
 

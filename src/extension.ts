@@ -1,5 +1,11 @@
 import * as vscode from 'vscode';
-import { detectRepo, getConfig, ensureGitignore, defaultSyncTargets, repoInfoFromTarget } from './configManager';
+import {
+  detectRepo,
+  getConfig,
+  ensureGitignore,
+  defaultSyncTargets,
+  repoInfoFromTarget,
+} from './configManager';
 import { GitHubClient } from './githubClient';
 import { SyncManager } from './syncManager';
 
@@ -20,7 +26,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (editor) {
         const filePath = editor.document.uri.fsPath;
         // Push via the manager that owns this file
-        const manager = syncManagers.find(m => m.ownsFile(filePath));
+        const manager = syncManagers.find((m) => m.ownsFile(filePath));
         if (manager) {
           void manager.pushFile(filePath);
         }
@@ -34,7 +40,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
 async function activateFolder(
   folder: vscode.WorkspaceFolder,
-  context: vscode.ExtensionContext
+  context: vscode.ExtensionContext,
 ): Promise<void> {
   const config = getConfig(folder.uri.fsPath, folder);
 
@@ -42,20 +48,36 @@ async function activateFolder(
   let targets = config.syncTargets;
   if (targets.length === 0) {
     const repoInfo = await detectRepo(folder);
-    if (!repoInfo) { return; }
-    targets = defaultSyncTargets(repoInfo.owner, repoInfo.repo, folder.uri.fsPath);
+    if (!repoInfo) {
+      return;
+    }
+    targets = defaultSyncTargets(
+      repoInfo.owner,
+      repoInfo.repo,
+      folder.uri.fsPath,
+    );
   }
 
-  await ensureGitignore(folder.uri.fsPath, targets.map(t => t.location));
+  await ensureGitignore(
+    folder.uri.fsPath,
+    targets.map((t) => t.location),
+  );
 
   for (const target of targets) {
     const repoInfo = repoInfoFromTarget(target);
     if (!repoInfo) {
-      console.warn(`[issueSync] Skipping target with unparseable repository_url: ${target.repository_url}`);
+      console.warn(
+        `[issueSync] Skipping target with unparseable repository_url: ${target.repository_url}`,
+      );
       continue;
     }
-    const client = await GitHubClient.authenticate(repoInfo.owner, repoInfo.repo);
-    if (!client) { continue; }
+    const client = await GitHubClient.authenticate(
+      repoInfo.owner,
+      repoInfo.repo,
+    );
+    if (!client) {
+      continue;
+    }
 
     const manager = new SyncManager(client, config, target, folder, context);
     await manager.start();
@@ -65,6 +87,6 @@ async function activateFolder(
 }
 
 export function deactivate(): void {
-  syncManagers.forEach(m => m.dispose());
+  syncManagers.forEach((m) => m.dispose());
   syncManagers.length = 0;
 }
