@@ -215,7 +215,6 @@ export class SyncManager {
       state: cloudIssue.state,
       labels: cloudIssue.labels,
       assignees: cloudIssue.assignees,
-      closed_at: cloudIssue.closed_at,
     };
     const cloudContent = serializeIssueFile(cloudFrontmatter, cloudIssue.body ?? '');
 
@@ -293,7 +292,6 @@ export class SyncManager {
         state: issue.state,
         labels: issue.labels,
         assignees: issue.assignees,
-        closed_at: issue.closed_at,
       };
       await writeIssueFile(filePath, frontmatter, overrideBody ?? issue.body ?? '');
       await this.stateManager.setSyncedAt(issue.number, issue.updated_at);

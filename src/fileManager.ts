@@ -9,7 +9,6 @@ export interface IssueFrontmatter {
   state: 'open' | 'closed';
   labels: string[];
   assignees: string[];
-  closed_at: string | null;
   projects?: Record<string, Record<string, string>>;
 }
 
@@ -24,7 +23,6 @@ export async function readIssueFile(filePath: string): Promise<{ frontmatter: Is
     state: data['state'] === 'closed' ? 'closed' : 'open',
     labels: Array.isArray(data['labels']) ? data['labels'].map(String) : [],
     assignees: Array.isArray(data['assignees']) ? data['assignees'].map(String) : [],
-    closed_at: data['closed_at'] != null ? String(data['closed_at']) : null,
     projects: typeof data['projects'] === 'object' && data['projects'] !== null ? (data['projects'] as Record<string, Record<string, string>>) : undefined,
   };
 
@@ -120,7 +118,7 @@ export async function findFileByNumber(location: string, issueNumber: number, te
  * Supported tokens: state:, label:, assignee:, is:issue, updated:>, closed:>
  * Unknown tokens are treated as matching (return true).
  */
-export function issueMatchesFilter(frontmatter: IssueFrontmatter, resolvedQuery: string, syncedAt?: string): boolean {
+export function issueMatchesFilter(frontmatter: IssueFrontmatter, resolvedQuery: string, syncedAt?: string, closedAt?: string | null): boolean {
   const tokens = resolvedQuery.trim().split(/\s+/);
 
   for (const token of tokens) {
@@ -163,7 +161,7 @@ export function issueMatchesFilter(frontmatter: IssueFrontmatter, resolvedQuery:
 
     if (token.startsWith('closed:>')) {
       const dateStr = token.slice('closed:>'.length);
-      if (!frontmatter.closed_at || new Date(frontmatter.closed_at) <= new Date(dateStr)) {
+      if (!closedAt || new Date(closedAt) <= new Date(dateStr)) {
         return false;
       }
       continue;

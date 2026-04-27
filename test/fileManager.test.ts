@@ -66,7 +66,6 @@ suite('fileManager – issueMatchesFilter', () => {
       state: 'open',
       labels: [],
       assignees: [],
-      closed_at: null,
       ...overrides,
     };
   }
@@ -82,7 +81,7 @@ suite('fileManager – issueMatchesFilter', () => {
   });
 
   test('state:closed matches closed issue', () => {
-    const fm = makeFrontmatter({ state: 'closed', closed_at: '2026-04-20T00:00:00Z' });
+    const fm = makeFrontmatter({ state: 'closed' });
     assert.strictEqual(issueMatchesFilter(fm, 'state:closed'), true);
   });
 
@@ -127,12 +126,17 @@ suite('fileManager – issueMatchesFilter', () => {
   });
 
   test('closed:> matches when closed_at is after the date', () => {
-    const fm = makeFrontmatter({ closed_at: '2026-04-20T00:00:00Z' });
-    assert.strictEqual(issueMatchesFilter(fm, 'closed:>2026-04-10'), true);
+    const fm = makeFrontmatter();
+    assert.strictEqual(issueMatchesFilter(fm, 'closed:>2026-04-10', undefined, '2026-04-20T00:00:00Z'), true);
   });
 
   test('closed:> does not match when closed_at is null', () => {
-    const fm = makeFrontmatter({ closed_at: null });
+    const fm = makeFrontmatter();
+    assert.strictEqual(issueMatchesFilter(fm, 'closed:>2026-04-10', undefined, null), false);
+  });
+
+  test('closed:> does not match when closedAt is not provided', () => {
+    const fm = makeFrontmatter();
     assert.strictEqual(issueMatchesFilter(fm, 'closed:>2026-04-10'), false);
   });
 
@@ -163,7 +167,6 @@ suite('fileManager – serialize/read round-trip', () => {
       state: 'open',
       labels: ['bug', 'help wanted'],
       assignees: ['octocat'],
-      closed_at: null,
     };
   }
 
@@ -188,7 +191,6 @@ suite('fileManager – serialize/read round-trip', () => {
     assert.strictEqual(read.state, fm.state);
     assert.deepStrictEqual(read.labels, fm.labels);
     assert.deepStrictEqual(read.assignees, fm.assignees);
-    assert.strictEqual(read.closed_at, fm.closed_at);
     assert.ok(readBody.includes('Issue body goes here.'));
   });
 
@@ -202,7 +204,6 @@ suite('fileManager – serialize/read round-trip', () => {
     assert.strictEqual(frontmatter.state, 'open');
     assert.deepStrictEqual(frontmatter.labels, []);
     assert.deepStrictEqual(frontmatter.assignees, []);
-    assert.strictEqual(frontmatter.closed_at, null);
     assert.ok(body.includes('Body text.'));
   });
 });
