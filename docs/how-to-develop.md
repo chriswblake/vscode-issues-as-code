@@ -64,8 +64,8 @@ Use this workflow instead:
 5. In Extension Development Host, open the already-cloned `vscode-issues-as-code-testing` folder with File -> Open Folder.
 6. In Extension Development Host, sign in to GitHub if prompted (Accounts menu in the lower-left is a quick check).
 7. Configure sync targets for the opened testing workspace:
-   - Run the command palette action: Issues: Add Open Issues Default Config, or
-   - Manually set `issueSync.syncTargets` in workspace settings.
+   - Run the command palette action: Issues as Code: Add Open Issues Default Config, or
+   - Manually set `issuesAsCode.syncTargets` in workspace settings.
 8. Confirm files appear under `.issues/open` in the testing folder.
 
 If cloning fails in Extension Development Host, that is expected for some setups. Pre-cloning outside the host window is the recommended test path.
@@ -74,8 +74,8 @@ If cloning fails in Extension Development Host, that is expected for some setups
 
 - If repo detection fails, verify the opened folder is a git repository and has an `origin` remote pointing to GitHub.
 - If auth fails, sign out/in of GitHub in Extension Development Host and rerun the command.
-- If nothing syncs, verify `issueSync.syncTargets` is set for that workspace folder and run Issues: Pull Now (config changes are applied automatically).
-- If files still do not appear, check the extension host logs (Output panel) for `[issueSync]` errors.
+- If nothing syncs, verify `issuesAsCode.syncTargets` is set for that workspace folder and run Issues as Code: Pull Now (config changes are applied automatically).
+- If files still do not appear, check the extension host logs (Output panel) for `[issuesAsCode]` errors.
 
 ## 4. Project Structure
 

@@ -3,9 +3,7 @@ import * as vscode from 'vscode';
 
 suite('Extension – integration tests', () => {
   test('extension activates without errors', async () => {
-    const ext = vscode.extensions.getExtension(
-      'undefined_publisher.vscode-issues-as-code',
-    );
+    const ext = vscode.extensions.getExtension('undefined_publisher.vscode-issues-as-code');
     if (ext && !ext.isActive) {
       await ext.activate();
     }
@@ -13,35 +11,23 @@ suite('Extension – integration tests', () => {
     assert.ok(vscode.version, 'vscode API is accessible');
   });
 
-  test('issueSync.pullNow command is registered', async () => {
+  test('issuesAsCode.pullNow command is registered', async () => {
     const commands = await vscode.commands.getCommands(true);
-    assert.ok(
-      commands.includes('issueSync.pullNow'),
-      'issueSync.pullNow should be registered',
-    );
+    assert.ok(commands.includes('issuesAsCode.pullNow'), 'issuesAsCode.pullNow should be registered');
   });
 
-  test('issueSync.pushNow command is registered', async () => {
+  test('issuesAsCode.pushNow command is registered', async () => {
     const commands = await vscode.commands.getCommands(true);
-    assert.ok(
-      commands.includes('issueSync.pushNow'),
-      'issueSync.pushNow should be registered',
-    );
+    assert.ok(commands.includes('issuesAsCode.pushNow'), 'issuesAsCode.pushNow should be registered');
   });
 
-  test('issueSync.refresh command is registered', async () => {
+  test('issuesAsCode.refresh command is registered', async () => {
     const commands = await vscode.commands.getCommands(true);
-    assert.ok(
-      commands.includes('issueSync.refresh'),
-      'issueSync.refresh should be registered',
-    );
+    assert.ok(commands.includes('issuesAsCode.refresh'), 'issuesAsCode.refresh should be registered');
   });
 
-  test('issueSync.addOpenIssuesDefaultConfig command is registered', async () => {
+  test('issuesAsCode.addOpenIssuesDefaultConfig command is registered', async () => {
     const commands = await vscode.commands.getCommands(true);
-    assert.ok(
-      commands.includes('issueSync.addOpenIssuesDefaultConfig'),
-      'issueSync.addOpenIssuesDefaultConfig should be registered',
-    );
+    assert.ok(commands.includes('issuesAsCode.addOpenIssuesDefaultConfig'), 'issuesAsCode.addOpenIssuesDefaultConfig should be registered');
   });
 });

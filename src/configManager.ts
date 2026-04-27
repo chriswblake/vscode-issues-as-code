@@ -54,7 +54,7 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const vscode = require('vscode') as typeof import('vscode');
       const uri = (vscodeWorkspaceFolder as { uri: import('vscode').Uri }).uri;
-      const cfg = vscode.workspace.getConfiguration('issueSync', uri);
+      const cfg = vscode.workspace.getConfiguration('issuesAsCode', uri);
 
       const rawTargets = cfg.get<SyncTarget[]>('syncTargets') ?? [];
       const syncTargets = rawTargets.map((t) => ({

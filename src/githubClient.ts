@@ -53,7 +53,7 @@ export class GitHubClient {
     const searchResults = await this.octokit.paginate(this.octokit.rest.search.issuesAndPullRequests, { q: fullQuery, per_page: 100 }, (response) => {
       const remaining = response.headers['x-ratelimit-remaining'];
       if (remaining !== undefined) {
-        console.log(`[issueSync] x-ratelimit-remaining: ${remaining}`);
+        console.log(`[issuesAsCode] x-ratelimit-remaining: ${remaining}`);
       }
       return response.data;
     });

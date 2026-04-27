@@ -40,17 +40,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await reinitializeAllFolders(context);
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('issueSync.pullNow', async () => {
+    vscode.commands.registerCommand('issuesAsCode.pullNow', async () => {
       if (syncManagers.length === 0) {
         await reinitializeAllFolders(context);
       }
       if (syncManagers.length === 0) {
-        void vscode.window.showWarningMessage('No sync targets are active for this workspace. Configure issueSync.syncTargets or open a folder with a GitHub remote.');
+        void vscode.window.showWarningMessage('No sync targets are active for this workspace. Configure issuesAsCode.syncTargets or open a folder with a GitHub remote.');
         return;
       }
       syncManagers.forEach((m) => void m.pullAll());
     }),
-    vscode.commands.registerCommand('issueSync.pushNow', () => {
+    vscode.commands.registerCommand('issuesAsCode.pushNow', () => {
       const editor = vscode.window.activeTextEditor;
       if (editor) {
         const filePath = editor.document.uri.fsPath;
@@ -61,17 +61,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
       }
     }),
-    vscode.commands.registerCommand('issueSync.refresh', async () => {
+    vscode.commands.registerCommand('issuesAsCode.refresh', async () => {
       if (syncManagers.length === 0) {
         await reinitializeAllFolders(context);
       }
       if (syncManagers.length === 0) {
-        void vscode.window.showWarningMessage('No sync targets are active for this workspace. Configure issueSync.syncTargets or open a folder with a GitHub remote.');
+        void vscode.window.showWarningMessage('No sync targets are active for this workspace. Configure issuesAsCode.syncTargets or open a folder with a GitHub remote.');
         return;
       }
       syncManagers.forEach((m) => void m.pullAll());
     }),
-    vscode.commands.registerCommand('issueSync.addOpenIssuesDefaultConfig', async () => {
+    vscode.commands.registerCommand('issuesAsCode.addOpenIssuesDefaultConfig', async () => {
       const folder = getActiveWorkspaceFolder();
       if (!folder) {
         void vscode.window.showErrorMessage('No workspace folder is open.');
@@ -84,7 +84,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
 
-      const cfg = vscode.workspace.getConfiguration('issueSync', folder.uri);
+      const cfg = vscode.workspace.getConfiguration('issuesAsCode', folder.uri);
       const currentTargets = cfg.get<Array<{ repository_url: string; query: string; location: string }>>('syncTargets') ?? [];
 
       const repositoryUrl = `https://github.com/${repoInfo.owner}/${repoInfo.repo}`;
@@ -108,7 +108,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       void vscode.window.showInformationMessage(`Added default open issues sync target for ${repoInfo.owner}/${repoInfo.repo}.`);
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration('issueSync')) {
+      if (event.affectsConfiguration('issuesAsCode')) {
         if (configChangeDebounceTimer) {
           clearTimeout(configChangeDebounceTimer);
         }
@@ -221,7 +221,7 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
   for (const target of targets) {
     const repoInfo = repoInfoFromTarget(target);
     if (!repoInfo) {
-      console.warn(`[issueSync] Skipping target with unparseable repository_url: ${target.repository_url}`);
+      console.warn(`[issuesAsCode] Skipping target with unparseable repository_url: ${target.repository_url}`);
       continue;
     }
     const client = await GitHubClient.authenticate(repoInfo.owner, repoInfo.repo);

@@ -16,38 +16,38 @@
   "contributes": {
     "commands": [
       {
-        "command": "issueSync.pullNow",
-        "title": "Issues: Pull Now"
+        "command": "issuesAsCode.pullNow",
+        "title": "Issues as Code: Pull Now"
       },
       {
-        "command": "issueSync.pushNow",
-        "title": "Issues: Push Now"
+        "command": "issuesAsCode.pushNow",
+        "title": "Issues as Code: Push Now"
       },
       {
-        "command": "issueSync.refresh",
-        "title": "Issues: Refresh All"
+        "command": "issuesAsCode.refresh",
+        "title": "Issues as Code: Refresh All"
       },
       {
-        "command": "issueSync.addOpenIssuesDefaultConfig",
-        "title": "Issues: Add Open Issues Default Config"
+        "command": "issuesAsCode.addOpenIssuesDefaultConfig",
+        "title": "Issues as Code: Add Open Issues Default Config"
       }
     ],
     "configuration": {
       "title": "Issues as Code",
       "properties": {
-        "issueSync.fileNaming": {
+        "issuesAsCode.fileNaming": {
           "type": "string",
           "default": "{issue-num}-{issue-title}",
           "description": "Template for issue file names.",
           "scope": "resource"
         },
-        "issueSync.pushOnSaveDelay": {
+        "issuesAsCode.pushOnSaveDelay": {
           "type": "number",
           "default": 60,
           "description": "Seconds to wait after last save before pushing to GitHub.",
           "scope": "resource"
         },
-        "issueSync.syncTargets": {
+        "issuesAsCode.syncTargets": {
           "type": "array",
           "default": [],
           "description": "List of repositories and queries to sync. Each entry specifies the repository URL, query, and local folder for a set of issues. When empty, the extension falls back to auto-detecting the workspace repository.",
@@ -75,25 +75,25 @@
             }
           }
         },
-        "issueSync.pullInterval": {
+        "issuesAsCode.pullInterval": {
           "type": "number",
           "default": 30,
           "description": "Minutes between automatic pulls from GitHub.",
           "scope": "resource"
         },
-        "issueSync.syncStatePath": {
+        "issuesAsCode.syncStatePath": {
           "type": "string",
           "default": "{workspaceDir}/.issues/sync-state.json",
           "description": "Path to the local sync state file that tracks the last-synced timestamp per issue. Defaults to .issues/sync-state.json in the workspace. Use {workspaceDir} as a placeholder for the workspace root. This file is machine-local and should be gitignored.",
           "scope": "resource"
         },
-        "issueSync.showSyncState": {
+        "issuesAsCode.showSyncState": {
           "type": "boolean",
           "default": false,
           "description": "Show the sync state file in the VS Code Explorer. When false (default), the file is hidden via files.exclude.",
           "scope": "resource"
         },
-        "issueSync.showSyncIcons": {
+        "issuesAsCode.showSyncIcons": {
           "type": "object",
           "description": "Controls which sync status icons are shown on issue files in the Explorer.",
           "scope": "resource",
@@ -120,7 +120,7 @@
             "synchronized": true
           }
         },
-        "issueSync.enable_experimental_projects": {
+        "issuesAsCode.enable_experimental_projects": {
           "type": "boolean",
           "default": false,
           "description": "Enable experimental GitHub Projects v2 metadata sync. Requires reloading VS Code to take effect.",

@@ -103,7 +103,7 @@ export class SyncManager {
       await this.pullTarget();
     } catch (err) {
       console.error(
-        `[issueSync] pullTarget "${this.target.repository_url}" failed:`, //
+        `[issuesAsCode] pullTarget "${this.target.repository_url}" failed:`, //
         err,
       );
     }
@@ -253,7 +253,7 @@ export class SyncManager {
     const timer = setTimeout(() => {
       this.debounceTimers.delete(filePath);
       void this.pushFile(filePath).catch((err) => {
-        console.error(`[issueSync] push failed for "${filePath}":`, err);
+        console.error(`[issuesAsCode] push failed for "${filePath}":`, err);
         const message = err instanceof Error ? err.message : 'Unknown error';
         void vscode().window.showErrorMessage(`Issue sync push failed for ${path.basename(filePath)}: ${message}`);
       });

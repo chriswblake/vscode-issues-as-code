@@ -36,15 +36,15 @@ All settings have `"scope": "resource"` so they can be set per workspace folder.
 
 | Setting                     | Type      | Default                                                  | Description                                                   |
 | --------------------------- | --------- | -------------------------------------------------------- | ------------------------------------------------------------- |
-| `issueSync.fileNaming`      | `string`  | `{issue-num}-{issue-title}`                              | Template for issue file names                                 |
-| `issueSync.pushOnSaveDelay` | `number`  | `60`                                                     | Seconds to wait after last save before pushing                |
-| `issueSync.syncTargets`     | `array`   | `[]`                                                     | Repositories and queries to sync (see below)                  |
-| `issueSync.pullInterval`    | `number`  | `30`                                                     | Minutes between automatic pulls                               |
-| `issueSync.syncStatePath`   | `string`  | `{workspaceDir}/.issues/sync-state.json`                 | Path to the local sync state file (machine-local, gitignored) |
-| `issueSync.showSyncState`   | `boolean` | `false`                                                  | Show the sync state file in the VS Code Explorer              |
-| `issueSync.showSyncIcons`   | `object`  | `{ newIssue: true, modified: true, synchronized: true }` | Controls which sync status badges appear on issue files       |
+| `issuesAsCode.fileNaming`      | `string`  | `{issue-num}-{issue-title}`                              | Template for issue file names                                 |
+| `issuesAsCode.pushOnSaveDelay` | `number`  | `60`                                                     | Seconds to wait after last save before pushing                |
+| `issuesAsCode.syncTargets`     | `array`   | `[]`                                                     | Repositories and queries to sync (see below)                  |
+| `issuesAsCode.pullInterval`    | `number`  | `30`                                                     | Minutes between automatic pulls                               |
+| `issuesAsCode.syncStatePath`   | `string`  | `{workspaceDir}/.issues/sync-state.json`                 | Path to the local sync state file (machine-local, gitignored) |
+| `issuesAsCode.showSyncState`   | `boolean` | `false`                                                  | Show the sync state file in the VS Code Explorer              |
+| `issuesAsCode.showSyncIcons`   | `object`  | `{ newIssue: true, modified: true, synchronized: true }` | Controls which sync status badges appear on issue files       |
 
-### `issueSync.syncTargets`
+### `issuesAsCode.syncTargets`
 
 Each entry defines one repository + query + local folder combination:
 
@@ -74,7 +74,7 @@ When `syncTargets` is empty (the default) the extension falls back to auto-detec
 
 ## How Sync Works
 
-On activation the extension reads `issueSync.syncTargets` and creates one sync manager per entry. Each manager authenticates via VS Code's GitHub auth provider, pulls issues matching its query into its configured `location` folder, and starts a `FileSystemWatcher` over that folder. When you save a file the extension starts a debounce timer and pushes your changes to the correct repository after the configured delay.
+On activation the extension reads `issuesAsCode.syncTargets` and creates one sync manager per entry. Each manager authenticates via VS Code's GitHub auth provider, pulls issues matching its query into its configured `location` folder, and starts a `FileSystemWatcher` over that folder. When you save a file the extension starts a debounce timer and pushes your changes to the correct repository after the configured delay.
 
 If the remote version was updated since your last sync, simple non-conflicting changes are auto-accepted from the remote. If both sides changed the same content, a standard merge editor opens so you can resolve the conflict manually. Every configured location's top-level directory is added to `.gitignore` automatically.
 
@@ -82,10 +82,10 @@ Sync state (last-synced timestamps) is stored in a dedicated `sync-state.json` f
 
 ## Commands
 
-- `Issues: Pull Now` — pulls all configured targets immediately.
-- `Issues: Push Now` — pushes the currently open issue file.
-- `Issues: Refresh All` — refreshes all configured targets.
-- `Issues: Add Open Issues Default Config` — detects the current repository and appends a default open-issues target to `issueSync.syncTargets` for the active workspace folder.
+- `Issues as Code: Pull Now` — pulls all configured targets immediately.
+- `Issues as Code: Push Now` — pushes the currently open issue file.
+- `Issues as Code: Refresh All` — refreshes all configured targets.
+- `Issues as Code: Add Open Issues Default Config` — detects the current repository and appends a default open-issues target to `issuesAsCode.syncTargets` for the active workspace folder.
 
 ## Documentation
 

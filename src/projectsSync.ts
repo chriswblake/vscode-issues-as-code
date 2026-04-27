@@ -11,7 +11,7 @@ export interface ProjectFieldData {
 
 /**
  * Experimental plugin for GitHub Projects v2 metadata sync.
- * Only loaded when issueSync.enable_experimental_projects is true.
+ * Only loaded when issuesAsCode.enable_experimental_projects is true.
  */
 export class ProjectsSyncPlugin {
   constructor(private readonly octokit: Octokit) {}
