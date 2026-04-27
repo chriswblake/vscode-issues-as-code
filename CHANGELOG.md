@@ -1,5 +1,13 @@
 # Changelog
 
+## [pending]
+
+### Added
+- `issueSync.enable_experimental_projects` setting (default: `false`) to gate GitHub Projects v2 metadata sync. Requires reloading VS Code to take effect.
+
+### Changed
+- GitHub Projects v2 logic extracted into a standalone `projectsSync.ts` module (`ProjectsSyncPlugin` class). The module is only loaded at runtime when `enable_experimental_projects` is `true`.
+
 ## [0.1.0] - 2026-04-22
 
 ### Added

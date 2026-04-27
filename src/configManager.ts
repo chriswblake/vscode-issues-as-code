@@ -27,6 +27,7 @@ export interface IssueConfig {
   syncStatePath: string;
   showSyncState: boolean;
   showSyncIcons: ShowSyncIconsConfig;
+  enableExperimentalProjects: boolean;
 }
 
 /**
@@ -78,6 +79,7 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
           modified: rawShowSyncIcons.modified ?? true,
           synchronized: rawShowSyncIcons.synchronized ?? true,
         },
+        enableExperimentalProjects: cfg.get<boolean>('enable_experimental_projects') ?? false,
       };
     } catch {
       // Fall through to defaults
@@ -93,6 +95,7 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
     syncStatePath: path.join(workspaceFolderPath, '.issues', 'sync-state.json'),
     showSyncState: false,
     showSyncIcons: { newIssue: true, modified: true, synchronized: true },
+    enableExperimentalProjects: false,
   };
 }
 

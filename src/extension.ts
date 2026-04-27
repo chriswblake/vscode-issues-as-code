@@ -198,6 +198,10 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
   stateManager.watchForDeletion();
   context.subscriptions.push({ dispose: () => stateManager.dispose() });
 
+  // Track whether the projects plugin has been instantiated for this folder's first authenticated client.
+  // The module itself is only loaded (via dynamic import) when enable_experimental_projects is true.
+  let projectsPlugin: import('./projectsSync.js').ProjectsSyncPlugin | null = null;
+
   // Refresh file decorations and clear dirty state when sync confirms a match
   const unsubscribeDecorations = stateManager.onDidChange((filePath) => {
     decorationProvider?.clearDirty(filePath);
@@ -223,6 +227,12 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
     const client = await GitHubClient.authenticate(repoInfo.owner, repoInfo.repo);
     if (!client) {
       continue;
+    }
+
+    // Instantiate the projects plugin for this client when experimental flag is on
+    if (config.enableExperimentalProjects && projectsPlugin === null) {
+      const { ProjectsSyncPlugin } = await import('./projectsSync.js');
+      projectsPlugin = new ProjectsSyncPlugin(client.octokit);
     }
 
     const manager = new SyncManager(client, config, target, folder, context, stateManager);

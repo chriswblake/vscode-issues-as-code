@@ -104,6 +104,11 @@ suite('configManager – getConfig defaults', () => {
     assert.strictEqual(config.showSyncState, false);
     assert.strictEqual(config.pullInterval, 30);
   });
+
+  test('enableExperimentalProjects defaults to false', () => {
+    const config = getConfig('/workspace');
+    assert.strictEqual(config.enableExperimentalProjects, false);
+  });
 });
 
 // ---------------------------------------------------------------------------
