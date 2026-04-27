@@ -97,7 +97,7 @@ suite('syncManager – debounce timer behavior', () => {
 // Section 2: Conflict detection – isConflict()
 // ---------------------------------------------------------------------------
 suite('syncManager – conflict detection', () => {
-  test('returns true when cloud is newer than local synced_at', () => {
+  test('returns true when cloud is newer than local sync state', () => {
     assert.strictEqual(
       isConflict('2026-04-22T12:00:00Z', '2026-04-22T10:00:00Z'), //
       true,
@@ -107,22 +107,26 @@ suite('syncManager – conflict detection', () => {
   test('returns false when cloud and local have the same timestamp', () => {
     assert.strictEqual(
       isConflict('2026-04-22T10:00:00Z', '2026-04-22T10:00:00Z'), //
-      false
+      false,
     );
   });
 
   test('returns false when local is newer than cloud', () => {
     assert.strictEqual(
       isConflict('2026-04-22T08:00:00Z', '2026-04-22T10:00:00Z'), //
-      false
+      false,
+    );
+  });
+
+  test('returns false when local sync state is undefined (never synced)', () => {
+    assert.strictEqual(
+      isConflict('2026-04-22T12:00:00Z', undefined), //
+      false,
     );
   });
 
   test('handles ISO 8601 strings with milliseconds', () => {
-    assert.strictEqual(
-      isConflict('2026-04-22T10:00:00.500Z', '2026-04-22T10:00:00.000Z'),
-      true
-    );
+    assert.strictEqual(isConflict('2026-04-22T10:00:00.500Z', '2026-04-22T10:00:00.000Z'), true);
   });
 });
 

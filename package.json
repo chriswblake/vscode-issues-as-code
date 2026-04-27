@@ -80,6 +80,12 @@
           "default": 30,
           "description": "Minutes between automatic pulls from GitHub.",
           "scope": "resource"
+        },
+        "issueSync.syncStatePath": {
+          "type": "string",
+          "default": "{workspaceDir}/.issues/sync-state.json",
+          "description": "Path to the local sync state file that tracks the last-synced timestamp per issue. Defaults to .issues/sync-state.json in the workspace. Use {workspaceDir} as a placeholder for the workspace root. This file is machine-local and should be gitignored.",
+          "scope": "resource"
         }
       }
     }

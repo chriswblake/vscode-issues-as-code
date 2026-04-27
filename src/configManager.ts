@@ -18,6 +18,7 @@ export interface IssueConfig {
   autosaveDelay: number;
   syncTargets: SyncTarget[];
   pullInterval: number;
+  syncStatePath: string;
 }
 
 /**
@@ -47,16 +48,20 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
       const cfg = vscode.workspace.getConfiguration('issueSync', uri);
 
       const rawTargets = cfg.get<SyncTarget[]>('syncTargets') ?? [];
-      const syncTargets = rawTargets.map(t => ({
+      const syncTargets = rawTargets.map((t) => ({
         ...t,
         location: t.location.replace('{workspaceDir}', workspaceFolderPath),
       }));
+
+      const rawSyncStatePath = cfg.get<string>('syncStatePath') ?? '{workspaceDir}/.issues/sync-state.json';
+      const syncStatePath = rawSyncStatePath.replace('{workspaceDir}', workspaceFolderPath);
 
       return {
         fileNaming: cfg.get<string>('fileNaming') ?? '{issue-num}-{issue-title}',
         autosaveDelay: cfg.get<number>('autosaveDelay') ?? 60,
         syncTargets,
         pullInterval: cfg.get<number>('pullInterval') ?? 30,
+        syncStatePath,
       };
     } catch {
       // Fall through to defaults
@@ -69,6 +74,7 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
     autosaveDelay: 60,
     syncTargets: [],
     pullInterval: 30,
+    syncStatePath: path.join(workspaceFolderPath, '.issues', 'sync-state.json'),
   };
 }
 
@@ -109,21 +115,27 @@ export async function detectRepo(workspaceFolder: { uri: { fsPath: string } }): 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const vscode = require('vscode');
     const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
-    if (!gitExtension) { return null; }
+    if (!gitExtension) {
+      return null;
+    }
 
     const api = gitExtension.getAPI(1);
-    if (!api) { return null; }
+    if (!api) {
+      return null;
+    }
 
-    const repo = api.repositories.find(
-      (r: { rootUri: { fsPath: string } }) => workspaceFolder.uri.fsPath.startsWith(r.rootUri.fsPath)
-    );
-    if (!repo) { return null; }
+    const repo = api.repositories.find((r: { rootUri: { fsPath: string } }) => workspaceFolder.uri.fsPath.startsWith(r.rootUri.fsPath));
+    if (!repo) {
+      return null;
+    }
 
     const remotes: Array<{ name: string; fetchUrl?: string; pushUrl?: string }> = repo.state.remotes ?? [];
-    if (remotes.length === 0) { return null; }
+    if (remotes.length === 0) {
+      return null;
+    }
 
     // Prefer "origin", fall back to first remote
-    const remote = remotes.find(r => r.name === 'origin') ?? remotes[0];
+    const remote = remotes.find((r) => r.name === 'origin') ?? remotes[0];
     const url = remote.fetchUrl ?? remote.pushUrl ?? '';
 
     return parseGitHubUrl(url);
@@ -163,13 +175,17 @@ export async function ensureGitignore(workspaceRoot: string, locations: string[]
   const entries = new Set<string>();
   for (const loc of locations) {
     const rel = path.relative(workspaceRoot, loc);
-    if (rel.startsWith('..')) { continue; } // outside workspace
+    if (rel.startsWith('..')) {
+      continue;
+    } // outside workspace
     // Take the top-level segment so that e.g. ".issues/open" → ".issues/"
     const topLevel = rel.split(path.sep)[0];
     entries.add(topLevel + '/');
   }
 
-  if (entries.size === 0) { return; }
+  if (entries.size === 0) {
+    return;
+  }
 
   let content = '';
   try {
@@ -178,9 +194,11 @@ export async function ensureGitignore(workspaceRoot: string, locations: string[]
     // File doesn't exist yet; we'll create it
   }
 
-  const lines = content.split('\n').map(l => l.trim());
-  const toAdd = [...entries].filter(e => !lines.includes(e));
-  if (toAdd.length === 0) { return; }
+  const lines = content.split('\n').map((l) => l.trim());
+  const toAdd = [...entries].filter((e) => !lines.includes(e));
+  if (toAdd.length === 0) {
+    return;
+  }
 
   const suffix = content.endsWith('\n') || content === '' ? '' : '\n';
   await fs.promises.writeFile(gitignorePath, content + suffix + toAdd.join('\n') + '\n', 'utf8');

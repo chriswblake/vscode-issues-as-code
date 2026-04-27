@@ -15,6 +15,7 @@ import {
   type IssueConfig,
   resolveQuery,
 } from './configManager';
+import { SyncStateManager } from './syncStateManager';
 
 // Lazy vscode import so unit tests can stub it out
 function vscode(): typeof vscodeType {
@@ -34,6 +35,7 @@ export class SyncManager {
     private target: SyncTarget,
     private workspaceFolder: vscodeType.WorkspaceFolder,
     private context: vscodeType.ExtensionContext,
+    private stateManager: SyncStateManager,
   ) {}
 
   /** Returns true if the given file path is managed by this sync manager. */
@@ -134,7 +136,7 @@ export class SyncManager {
       // Existing issue — check for conflicts first
       const cloud = await this.client.getIssue(frontmatter.number);
 
-      if (isConflict(cloud.updated_at, frontmatter.synced_at)) {
+      if (isConflict(cloud.updated_at, this.stateManager.getSyncedAt(frontmatter.number))) {
         await this.handleConflict(filePath, cloud);
         return;
       }
@@ -147,7 +149,7 @@ export class SyncManager {
         assignees: frontmatter.assignees,
       });
 
-      // Refresh local file with updated synced_at; rename if title changed
+      // Refresh local file; rename if title changed
       const updated = await this.client.getIssue(frontmatter.number);
       await this.writeAndRename(filePath, updated, body);
     } else {
@@ -213,7 +215,6 @@ export class SyncManager {
       state: cloudIssue.state,
       labels: cloudIssue.labels,
       assignees: cloudIssue.assignees,
-      synced_at: cloudIssue.updated_at,
       closed_at: cloudIssue.closed_at,
     };
     const cloudContent = serializeIssueFile(cloudFrontmatter, cloudIssue.body ?? '');
@@ -292,10 +293,10 @@ export class SyncManager {
         state: issue.state,
         labels: issue.labels,
         assignees: issue.assignees,
-        synced_at: issue.updated_at,
         closed_at: issue.closed_at,
       };
       await writeIssueFile(filePath, frontmatter, overrideBody ?? issue.body ?? '');
+      await this.stateManager.setSyncedAt(issue.number, issue.updated_at);
     } finally {
       this.suppress(filePath, -1);
     }
@@ -332,7 +333,10 @@ export class SyncManager {
 }
 
 /** Pure helper: returns true if cloud version is newer than local synced_at. */
-export function isConflict(cloudUpdatedAt: string, syncedAt: string): boolean {
+export function isConflict(cloudUpdatedAt: string, syncedAt: string | undefined): boolean {
+  if (!syncedAt) {
+    return false;
+  }
   return new Date(cloudUpdatedAt) > new Date(syncedAt);
 }
 

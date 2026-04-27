@@ -2,16 +2,7 @@ import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import {
-  issueToFileName,
-  issueNumberFromFileName,
-  findFileByNumber,
-  issueMatchesFilter,
-  serializeIssueFile,
-  readIssueFile,
-  writeIssueFile,
-  type IssueFrontmatter,
-} from '../src/fileManager';
+import { issueToFileName, issueNumberFromFileName, findFileByNumber, issueMatchesFilter, serializeIssueFile, readIssueFile, writeIssueFile, type IssueFrontmatter } from '../src/fileManager';
 import type { IssueData } from '../src/githubClient';
 
 // ---------------------------------------------------------------------------
@@ -75,7 +66,6 @@ suite('fileManager – issueMatchesFilter', () => {
       state: 'open',
       labels: [],
       assignees: [],
-      synced_at: '2026-04-22T10:00:00Z',
       closed_at: null,
       ...overrides,
     };
@@ -122,12 +112,17 @@ suite('fileManager – issueMatchesFilter', () => {
   });
 
   test('updated:> matches when synced_at is after the date', () => {
-    const fm = makeFrontmatter({ synced_at: '2026-04-22T10:00:00Z' });
-    assert.strictEqual(issueMatchesFilter(fm, 'updated:>2026-04-01'), true);
+    const fm = makeFrontmatter();
+    assert.strictEqual(issueMatchesFilter(fm, 'updated:>2026-04-01', '2026-04-22T10:00:00Z'), true);
   });
 
   test('updated:> does not match when synced_at is before the date', () => {
-    const fm = makeFrontmatter({ synced_at: '2026-03-01T10:00:00Z' });
+    const fm = makeFrontmatter();
+    assert.strictEqual(issueMatchesFilter(fm, 'updated:>2026-04-01', '2026-03-01T10:00:00Z'), false);
+  });
+
+  test('updated:> does not match when syncedAt is not provided', () => {
+    const fm = makeFrontmatter();
     assert.strictEqual(issueMatchesFilter(fm, 'updated:>2026-04-01'), false);
   });
 
@@ -168,7 +163,6 @@ suite('fileManager – serialize/read round-trip', () => {
       state: 'open',
       labels: ['bug', 'help wanted'],
       assignees: ['octocat'],
-      synced_at: '2026-04-22T10:00:00Z',
       closed_at: null,
     };
   }
