@@ -13,10 +13,16 @@ Use descriptive variable and function names. Avoid abbreviations unless they are
 When writing functions, aim for a single responsibility.
 If a function is doing too much, break it into smaller functions.
 
-Work in logical commits. Each commit should represent a single change or feature.
-This makes it easier to review and understand the history of changes.
-
 ## Testing
 
 All unit tests must be independent.
 Organize tests into Arrange, Act, Assert sections for clarity. Label the sections with a comment.
+
+Write tests alongside the code, not afterward. Tests ensure the interfaces remain intuitive and the methods' scope remains small.
+
+## Changelog
+
+Work in logical commits. Each commit should represent a single change or feature.
+This makes it easier to review and understand the history of changes for creating the changelog.
+
+Add a "pending" section to the changelong for each PR. This will be used for for publishing releases.
