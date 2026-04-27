@@ -157,6 +157,13 @@ export class SyncManager {
     const kind = classifyDiff(localContent, cloudContent);
 
     if (kind === 'identical') {
+      // Update state entry so the state file always has a complete record of all tracked issues
+      await this.stateManager.setSyncedAt(
+        this.target.location, //
+        issue.number,
+        localPath,
+        issueToRemoteInfo(issue),
+      );
       return;
     }
 
@@ -370,10 +377,7 @@ export class SyncManager {
 function issueToRemoteInfo(issue: IssueData): RemoteIssueInfo {
   return {
     number: issue.number, //
-    title: issue.title,
     state: issue.state,
-    labels: issue.labels,
-    assignees: issue.assignees,
     updated_at: issue.updated_at,
     closed_at: issue.closed_at,
     html_url: issue.html_url,

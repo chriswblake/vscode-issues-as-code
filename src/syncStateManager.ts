@@ -4,10 +4,7 @@ import * as path from 'path';
 /** Read-only snapshot of a GitHub issue at the time it was last synced. */
 export interface RemoteIssueInfo {
   number: number;
-  title: string;
   state: 'open' | 'closed';
-  labels: string[];
-  assignees: string[];
   updated_at: string;
   closed_at: string | null;
   html_url: string;
@@ -81,5 +78,22 @@ export class SyncStateManager {
       JSON.stringify(this.state, null, 2),
       'utf8',
     );
+  }
+
+  /** Watches the state file and recreates it if deleted. Call dispose() to stop watching. */
+  watchForDeletion(pollInterval = 2000): void {
+    fs.watchFile(
+      this.statePath, //
+      { persistent: false, interval: pollInterval },
+      (curr) => {
+        if (curr.nlink === 0) {
+          void this.save();
+        }
+      },
+    );
+  }
+
+  dispose(): void {
+    fs.unwatchFile(this.statePath);
   }
 }

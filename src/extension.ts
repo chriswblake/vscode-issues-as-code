@@ -127,6 +127,8 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
 
   const stateManager = new SyncStateManager(config.syncStatePath);
   await stateManager.load();
+  stateManager.watchForDeletion();
+  context.subscriptions.push({ dispose: () => stateManager.dispose() });
 
   for (const target of targets) {
     const repoInfo = repoInfoFromTarget(target);
