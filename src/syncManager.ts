@@ -152,8 +152,13 @@ export class SyncManager {
       await this.writeAndRename(filePath, updated, body);
     } else {
       // New file — create issue on GitHub, then rename file to match template
+      const inferredTitle = inferNewIssueTitle(
+        filePath, //
+        frontmatter.title,
+        body,
+      );
       const created = await this.client.createIssue({
-        title: frontmatter.title,
+        title: inferredTitle,
         body,
         labels: frontmatter.labels,
         assignees: frontmatter.assignees,
@@ -171,7 +176,11 @@ export class SyncManager {
 
     const timer = setTimeout(() => {
       this.debounceTimers.delete(filePath);
-      void this.pushFile(filePath);
+      void this.pushFile(filePath).catch((err) => {
+        console.error(`[issueSync] push failed for "${filePath}":`, err);
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        void vscode().window.showErrorMessage(`Issue sync push failed for ${path.basename(filePath)}: ${message}`);
+      });
     }, this.config.autosaveDelay * 1000);
 
     this.debounceTimers.set(filePath, timer);
@@ -327,4 +336,26 @@ export function isConflict(cloudUpdatedAt: string, syncedAt: string): boolean {
   return new Date(cloudUpdatedAt) > new Date(syncedAt);
 }
 
+/**
+ * Derives a title for new local issue files when frontmatter.title is missing.
+ * Priority: explicit title -> first non-empty body line (without markdown heading) -> file name.
+ */
+export function inferNewIssueTitle(filePath: string, frontmatterTitle: string, body: string): string {
+  const explicit = frontmatterTitle.trim();
+  if (explicit) {
+    return explicit;
+  }
 
+  const bodyLine = body
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => line.length > 0);
+  if (bodyLine) {
+    const cleaned = bodyLine.replace(/^#+\s*/, '').trim();
+    if (cleaned) {
+      return cleaned;
+    }
+  }
+
+  return path.basename(filePath, path.extname(filePath)).trim() || 'New issue';
+}

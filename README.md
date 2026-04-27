@@ -65,6 +65,13 @@ When `syncTargets` is empty (the default) the extension falls back to auto-detec
 
 On activation the extension reads `issueSync.syncTargets` and creates one sync manager per entry. Each manager authenticates via VS Code's GitHub auth provider, pulls issues matching its query into its configured `location` folder, and starts a `FileSystemWatcher` over that folder. When you save a file the extension starts a debounce timer and pushes your changes to the correct repository after the configured delay. If the cloud version was updated since your last sync, a diff editor opens so you can choose which version to keep. Every configured location's top-level directory is added to `.gitignore` automatically.
 
+## Commands
+
+- `Issues: Pull Now` — pulls all configured targets immediately.
+- `Issues: Push Now` — pushes the currently open issue file.
+- `Issues: Refresh All` — refreshes all configured targets.
+- `Issues: Add Open Issues Default Config` — detects the current repository and appends a default open-issues target to `issueSync.syncTargets` for the active workspace folder.
+
 ## Documentation
 
 See [docs/how-to-develop.md](docs/how-to-develop.md) for the developer guide.

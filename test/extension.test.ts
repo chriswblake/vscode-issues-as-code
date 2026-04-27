@@ -36,4 +36,12 @@ suite('Extension – integration tests', () => {
       'issueSync.refresh should be registered',
     );
   });
+
+  test('issueSync.addOpenIssuesDefaultConfig command is registered', async () => {
+    const commands = await vscode.commands.getCommands(true);
+    assert.ok(
+      commands.includes('issueSync.addOpenIssuesDefaultConfig'),
+      'issueSync.addOpenIssuesDefaultConfig should be registered',
+    );
+  });
 });

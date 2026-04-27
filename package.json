@@ -26,6 +26,10 @@
       {
         "command": "issueSync.refresh",
         "title": "Issues: Refresh All"
+      },
+      {
+        "command": "issueSync.addOpenIssuesDefaultConfig",
+        "title": "Issues: Add Open Issues Default Config"
       }
     ],
     "configuration": {

@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { isConflict } from '../src/syncManager';
+import { isConflict, inferNewIssueTitle } from '../src/syncManager';
 
 // ---------------------------------------------------------------------------
 // Section 1: Debounce timer behavior
@@ -123,6 +123,31 @@ suite('syncManager – conflict detection', () => {
       isConflict('2026-04-22T10:00:00.500Z', '2026-04-22T10:00:00.000Z'),
       true
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 2b: New issue title inference
+// ---------------------------------------------------------------------------
+suite('syncManager – new issue title inference', () => {
+  test('prefers explicit frontmatter title when present', () => {
+    const result = inferNewIssueTitle('/issues/new.md', 'My explicit title', 'Body line');
+    assert.strictEqual(result, 'My explicit title');
+  });
+
+  test('uses first non-empty body line when frontmatter title is blank', () => {
+    const result = inferNewIssueTitle('/issues/new.md', '   ', '\n\nThis is body title\nMore details');
+    assert.strictEqual(result, 'This is body title');
+  });
+
+  test('strips markdown heading markers from body-derived title', () => {
+    const result = inferNewIssueTitle('/issues/new.md', '', '# Heading Title\nBody');
+    assert.strictEqual(result, 'Heading Title');
+  });
+
+  test('falls back to filename when title and body are empty', () => {
+    const result = inferNewIssueTitle('/issues/bug in step 3.md', '', '   \n  ');
+    assert.strictEqual(result, 'bug in step 3');
   });
 });
 
