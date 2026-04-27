@@ -92,6 +92,33 @@
           "default": false,
           "description": "Show the sync state file in the VS Code Explorer. When false (default), the file is hidden via files.exclude.",
           "scope": "resource"
+        },
+        "issueSync.showSyncIcons": {
+          "type": "object",
+          "description": "Controls which sync status icons are shown on issue files in the Explorer.",
+          "scope": "resource",
+          "properties": {
+            "newIssue": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show 'A' badge on new issues not yet pushed to remote."
+            },
+            "modified": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show 'M' badge on locally modified issues not yet pushed to remote."
+            },
+            "synchronized": {
+              "type": "boolean",
+              "default": true,
+              "description": "Show '✓' badge on issues whose local copy matches the remote."
+            }
+          },
+          "default": {
+            "newIssue": true,
+            "modified": true,
+            "synchronized": true
+          }
         }
       }
     }
@@ -115,6 +142,6 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
     "test": "node ./out/test/runTests.js",
-    "test:unit": "mocha --ui tdd out/test/fileManager.test.js out/test/configManager.test.js out/test/syncManager.test.js out/test/syncStateManager.test.js"
+    "test:unit": "mocha --ui tdd out/test/fileManager.test.js out/test/configManager.test.js out/test/syncManager.test.js out/test/syncStateManager.test.js out/test/issueDecorationProvider.test.js"
   }
 }

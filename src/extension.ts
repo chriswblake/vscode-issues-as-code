@@ -4,8 +4,10 @@ import { detectRepo, getConfig, ensureGitignore, defaultSyncTargets, repoInfoFro
 import { GitHubClient } from './githubClient';
 import { SyncManager, reconcileTargetChanges } from './syncManager';
 import { SyncStateManager } from './syncStateManager';
+import { IssueDecorationProvider } from './issueDecorationProvider';
 
 const syncManagers: SyncManager[] = [];
+let decorationProvider: IssueDecorationProvider | undefined;
 
 // Serializes reinitializations so rapid config-change events don't overlap.
 // Each call is chained after the previous one; all callers await the same chain tail.
@@ -16,6 +18,25 @@ const CONFIG_CHANGE_DEBOUNCE_MS = 3000;
 let configChangeDebounceTimer: NodeJS.Timeout | null = null;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // Register the file decoration provider once
+  decorationProvider = new IssueDecorationProvider();
+  context.subscriptions.push(vscode.window.registerFileDecorationProvider(decorationProvider));
+
+  // Track unsaved editor changes to show M badge immediately
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      const filePath = event.document.uri.fsPath;
+      if (event.document.isDirty) {
+        decorationProvider?.markDirty(filePath);
+      } else {
+        decorationProvider?.clearDirty(filePath);
+      }
+    }),
+    vscode.workspace.onDidSaveTextDocument((document) => {
+      decorationProvider?.clearDirty(document.uri.fsPath);
+    }),
+  );
+
   await reinitializeAllFolders(context);
 
   context.subscriptions.push(
@@ -177,6 +198,13 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
   stateManager.watchForDeletion();
   context.subscriptions.push({ dispose: () => stateManager.dispose() });
 
+  // Refresh file decorations and clear dirty state when sync confirms a match
+  const unsubscribeDecorations = stateManager.onDidChange((filePath) => {
+    decorationProvider?.clearDirty(filePath);
+    decorationProvider?.refresh(filePath);
+  });
+  context.subscriptions.push({ dispose: unsubscribeDecorations });
+
   // Remove state entries for files no longer under any active target location (handles cross-session stale entries)
   const activeLocations = new Set(targets.map((t) => t.location));
   for (const filePath of stateManager.getKnownFilePaths()) {
@@ -201,6 +229,12 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
     await manager.start();
     syncManagers.push(manager);
     context.subscriptions.push({ dispose: () => manager.dispose() });
+  }
+
+  // Update decoration provider with all active managed locations and config
+  if (decorationProvider) {
+    const locations = syncManagers.map((m) => ({ location: m.target.location, stateManager: m.stateManager }));
+    decorationProvider.update(locations, config.showSyncIcons);
   }
 }
 

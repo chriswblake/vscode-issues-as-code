@@ -13,6 +13,12 @@ export interface RepoInfo {
   repo: string;
 }
 
+export interface ShowSyncIconsConfig {
+  newIssue: boolean;
+  modified: boolean;
+  synchronized: boolean;
+}
+
 export interface IssueConfig {
   fileNaming: string;
   autosaveDelay: number;
@@ -20,6 +26,7 @@ export interface IssueConfig {
   pullInterval: number;
   syncStatePath: string;
   showSyncState: boolean;
+  showSyncIcons: ShowSyncIconsConfig;
 }
 
 /**
@@ -57,6 +64,8 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
       const rawSyncStatePath = cfg.get<string>('syncStatePath') ?? '{workspaceDir}/.issues/sync-state.json';
       const syncStatePath = rawSyncStatePath.replace('{workspaceDir}', workspaceFolderPath);
 
+      const rawShowSyncIcons = cfg.get<Partial<ShowSyncIconsConfig>>('showSyncIcons') ?? {};
+
       return {
         fileNaming: cfg.get<string>('fileNaming') ?? '{issue-num}-{issue-title}',
         autosaveDelay: cfg.get<number>('autosaveDelay') ?? 60,
@@ -64,6 +73,11 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
         pullInterval: cfg.get<number>('pullInterval') ?? 30,
         syncStatePath,
         showSyncState: cfg.get<boolean>('showSyncState') ?? false,
+        showSyncIcons: {
+          newIssue: rawShowSyncIcons.newIssue ?? true,
+          modified: rawShowSyncIcons.modified ?? true,
+          synchronized: rawShowSyncIcons.synchronized ?? true,
+        },
       };
     } catch {
       // Fall through to defaults
@@ -78,6 +92,7 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
     pullInterval: 30,
     syncStatePath: path.join(workspaceFolderPath, '.issues', 'sync-state.json'),
     showSyncState: false,
+    showSyncIcons: { newIssue: true, modified: true, synchronized: true },
   };
 }
 

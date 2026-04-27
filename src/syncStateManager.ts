@@ -14,6 +14,8 @@ export interface RemoteIssueInfo {
 export interface SyncStateEntry {
   /** Timestamp of the remote copy when it was last pulled. */
   synced_at: string;
+  /** ISO timestamp of when the extension last wrote the local file. Used to detect local modifications. */
+  local_written_at: string;
   /** Read-only details from the remote at the time of last sync. */
   remote: RemoteIssueInfo;
 }
@@ -35,8 +37,23 @@ interface LegacySyncStateFile {
  */
 export class SyncStateManager {
   private state: SyncStateFile = { version: 2, files: {} };
+  private changeListeners: Array<(filePath: string) => void> = [];
 
   constructor(private readonly statePath: string) {}
+
+  /** Subscribe to state changes. Returns an unsubscribe function. */
+  onDidChange(listener: (filePath: string) => void): () => void {
+    this.changeListeners.push(listener);
+    return () => {
+      this.changeListeners = this.changeListeners.filter((l) => l !== listener);
+    };
+  }
+
+  private notifyChange(filePath: string): void {
+    for (const listener of this.changeListeners) {
+      listener(filePath);
+    }
+  }
 
   async load(): Promise<void> {
     try {
@@ -53,7 +70,7 @@ export class SyncStateManager {
         for (const targetEntries of Object.values(legacy.targets ?? {})) {
           for (const entry of Object.values(targetEntries)) {
             if (entry.file_path) {
-              files[entry.file_path] = { synced_at: entry.synced_at, remote: entry.remote };
+              files[entry.file_path] = { synced_at: entry.synced_at, local_written_at: entry.synced_at, remote: entry.remote };
             }
           }
         }
@@ -70,15 +87,25 @@ export class SyncStateManager {
     return this.state.files[filePath]?.synced_at;
   }
 
+  getLocalWrittenAt(filePath: string): string | undefined {
+    return this.state.files[filePath]?.local_written_at;
+  }
+
+  getEntry(filePath: string): SyncStateEntry | undefined {
+    return this.state.files[filePath];
+  }
+
   async setSyncedAt(filePath: string, remote: RemoteIssueInfo): Promise<void> {
-    this.state.files[filePath] = { synced_at: remote.updated_at, remote };
+    this.state.files[filePath] = { synced_at: remote.updated_at, local_written_at: new Date().toISOString(), remote };
     await this.save();
+    this.notifyChange(filePath);
   }
 
   /** Removes the state entry for a single file path, then persists. */
   async deleteEntry(filePath: string): Promise<void> {
     delete this.state.files[filePath];
     await this.save();
+    this.notifyChange(filePath);
   }
 
   /** Returns all entries whose file path is directly inside the given location directory. */
