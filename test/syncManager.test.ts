@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { isConflict, inferNewIssueTitle } from '../src/syncManager';
+import { isConflict, inferNewIssueTitle, classifyDiff, generateConflictContent, hasConflictMarkers } from '../src/syncManager';
 
 // ---------------------------------------------------------------------------
 // Section 1: Debounce timer behavior
@@ -212,5 +212,171 @@ suite('syncManager – suppressedUris ref-counting', () => {
     tracker.suppress('/issues/1.md', 1);
     assert.strictEqual(tracker.isSuppressed('/issues/1.md'), true);
     assert.strictEqual(tracker.isSuppressed('/issues/2.md'), false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 4: classifyDiff
+// ---------------------------------------------------------------------------
+suite('syncManager – classifyDiff', () => {
+  test('identical content returns identical', () => {
+    // Arrange
+    const content = 'line one\nline two\nline three';
+
+    // Act
+    const result = classifyDiff(content, content);
+
+    // Assert
+    assert.strictEqual(result, 'identical');
+  });
+
+  test('cloud adds lines → additions-only', () => {
+    // Arrange
+    const local = 'line one\nline two';
+    const cloud = 'line one\nline two\nline three';
+
+    // Act
+    const result = classifyDiff(local, cloud);
+
+    // Assert
+    assert.strictEqual(result, 'additions-only');
+  });
+
+  test('cloud removes lines → removals-only', () => {
+    // Arrange
+    const local = 'line one\nline two\nline three';
+    const cloud = 'line one\nline three';
+
+    // Act
+    const result = classifyDiff(local, cloud);
+
+    // Assert
+    assert.strictEqual(result, 'removals-only');
+  });
+
+  test('cloud both adds and removes lines → mixed', () => {
+    // Arrange
+    const local = 'line one\nline two\nline three';
+    const cloud = 'line one\nline TWO\nline three\nline four';
+
+    // Act
+    const result = classifyDiff(local, cloud);
+
+    // Assert
+    assert.strictEqual(result, 'mixed');
+  });
+
+  test('cloud replaces all lines → mixed', () => {
+    // Arrange
+    const local = 'old content';
+    const cloud = 'new content';
+
+    // Act
+    const result = classifyDiff(local, cloud);
+
+    // Assert
+    assert.strictEqual(result, 'mixed');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 5: generateConflictContent
+// ---------------------------------------------------------------------------
+suite('syncManager – generateConflictContent', () => {
+  test('equal lines pass through without markers', () => {
+    // Arrange
+    const local = 'line one\nline two';
+    const cloud = 'line one\nline two';
+
+    // Act
+    const result = generateConflictContent(local, cloud);
+
+    // Assert
+    assert.strictEqual(result, 'line one\nline two');
+  });
+
+  test('replaced line is wrapped in conflict markers', () => {
+    // Arrange
+    const local = 'intro\nold line\noutro';
+    const cloud = 'intro\nnew line\noutro';
+
+    // Act
+    const result = generateConflictContent(local, cloud);
+
+    // Assert
+    const expected = 'intro\n<<<<<<< Local\nold line\n=======\nnew line\n>>>>>>> GitHub\noutro';
+    assert.strictEqual(result, expected);
+  });
+
+  test('added-only hunk has empty local section', () => {
+    // Arrange
+    const local = 'line one\nline two';
+    const cloud = 'line one\ninserted\nline two';
+
+    // Act
+    const result = generateConflictContent(local, cloud);
+
+    // Assert
+    assert.ok(result.includes('<<<<<<< Local\n=======\ninserted\n>>>>>>> GitHub'));
+  });
+
+  test('removed-only hunk has empty cloud section', () => {
+    // Arrange
+    const local = 'line one\nremoved\nline two';
+    const cloud = 'line one\nline two';
+
+    // Act
+    const result = generateConflictContent(local, cloud);
+
+    // Assert
+    assert.ok(result.includes('<<<<<<< Local\nremoved\n=======\n>>>>>>> GitHub'));
+  });
+
+  test('unchanged context lines appear outside markers', () => {
+    // Arrange
+    const local = 'header\nold body\nfooter';
+    const cloud = 'header\nnew body\nfooter';
+
+    // Act
+    const result = generateConflictContent(local, cloud);
+    const lines = result.split('\n');
+
+    // Assert
+    assert.strictEqual(lines[0], 'header');
+    assert.strictEqual(lines[lines.length - 1], 'footer');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 6: hasConflictMarkers
+// ---------------------------------------------------------------------------
+suite('syncManager \u2013 hasConflictMarkers', () => {
+  test('returns false for clean content', () => {
+    // Arrange / Act / Assert
+    assert.strictEqual(hasConflictMarkers('normal content\nno markers here'), false);
+  });
+
+  test('returns true when conflict start marker is present', () => {
+    // Arrange
+    const content = 'line one\n<<<<<<< Local\nmine\n=======\ntheirs\n>>>>>>> GitHub\nline two';
+
+    // Act / Assert
+    assert.strictEqual(hasConflictMarkers(content), true);
+  });
+
+  test('returns false for less-than characters that are not markers', () => {
+    // Arrange
+    const content = 'value < 7\na <<= b';
+
+    // Act / Assert
+    assert.strictEqual(hasConflictMarkers(content), false);
+  });
+
+  test('returns true for markers produced by generateConflictContent', () => {
+    // Arrange
+    const content = generateConflictContent('old\nshared', 'new\nshared');
+
+    // Act / Assert
+    assert.strictEqual(hasConflictMarkers(content), true);
   });
 });
