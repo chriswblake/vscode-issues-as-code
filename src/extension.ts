@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { getConfig, ensureGitignore, type SyncTarget } from './configManager';
-import { SyncManager, reconcileTargetChanges } from './syncManager';
+import { SyncManager, reconcileTargetChanges, switchEditorToRenamedFile } from './syncManager';
 import { SyncStateManager } from './syncStateManager';
 import { IssueDecorationProvider } from './issueDecorationProvider';
 import { PublishCodeLensProvider } from './publishCodeLensProvider';
@@ -83,20 +83,20 @@ function registerCommands(context: vscode.ExtensionContext): void {
         if (manager) {
           const newPath = await manager.pushFile(filePath);
           if (newPath) {
-            await switchEditorToFile(fileUri(filePath), fileUri(newPath));
+            await switchEditorToRenamedFile(filePath, newPath);
           }
         }
       }
     }),
     vscode.commands.registerCommand('issuesAsCode.refresh', ensureManagersAndPull),
     vscode.commands.registerCommand('issuesAsCode.publishFile', async (uri?: vscode.Uri) => {
-      const fileUri_ = uri ?? vscode.window.activeTextEditor?.document.uri;
-      if (!fileUri_) {
+      const targetUri = uri ?? vscode.window.activeTextEditor?.document.uri;
+      if (!targetUri) {
         void vscode.window.showWarningMessage('No file is open to publish.');
         return;
       }
 
-      const filePath = fileUri_.fsPath;
+      const filePath = targetUri.fsPath;
       const manager = syncManagers.find((m) => m.ownsFile(filePath));
       if (!manager) {
         void vscode.window.showWarningMessage('This file is not inside a managed sync target folder.');
@@ -106,7 +106,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       try {
         const newPath = await manager.pushFile(filePath);
         if (newPath) {
-          await switchEditorToFile(fileUri_, fileUri(newPath));
+          await switchEditorToRenamedFile(filePath, newPath);
         }
       } catch (err) {
         void vscode.window.showErrorMessage(`Failed to publish file: ${err instanceof Error ? err.message : String(err)}`);
@@ -267,32 +267,6 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
     }));
     codeLensProvider.update(codeLensTargets);
   }
-}
-
-// ---------------------------------------------------------------------------
-// Editor helpers
-// ---------------------------------------------------------------------------
-
-function fileUri(fsPath: string): vscode.Uri {
-  return vscode.Uri.file(fsPath);
-}
-
-/**
- * Closes the editor tab showing `oldUri` and opens `newUri` in its place.
- * Used after a push renames the file so the user sees the updated file.
- */
-async function switchEditorToFile(oldUri: vscode.Uri, newUri: vscode.Uri): Promise<void> {
-  // Close the tab referencing the old (now deleted) file
-  const tabToClose = vscode.window.tabGroups.all
-    .flatMap((group) => group.tabs)
-    .find((tab) => tab.input instanceof vscode.TabInputText && tab.input.uri.fsPath === oldUri.fsPath);
-  if (tabToClose) {
-    await vscode.window.tabGroups.close(tabToClose);
-  }
-
-  // Open the renamed file
-  const doc = await vscode.workspace.openTextDocument(newUri);
-  await vscode.window.showTextDocument(doc);
 }
 
 export function deactivate(): void {

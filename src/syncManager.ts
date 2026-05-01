@@ -17,6 +17,26 @@ function vscode(): typeof vscodeType {
   return require('vscode');
 }
 
+/**
+ * Closes the editor tab showing the old file and opens the new (renamed) file.
+ * Called when a push results in a filename change.
+ */
+export async function switchEditorToRenamedFile(oldPath: string, newPath: string): Promise<void> {
+  const vs = vscode();
+  const oldUri = vs.Uri.file(oldPath);
+  const newUri = vs.Uri.file(newPath);
+
+  const tabToClose = vs.window.tabGroups.all
+    .flatMap((group) => group.tabs)
+    .find((tab) => tab.input instanceof vs.TabInputText && tab.input.uri.fsPath === oldUri.fsPath);
+  if (tabToClose) {
+    await vs.window.tabGroups.close(tabToClose);
+  }
+
+  const doc = await vs.workspace.openTextDocument(newUri);
+  await vs.window.showTextDocument(doc);
+}
+
 export class SyncManager {
   private suppressedUris = new Map<string, number>();
   private extensionWriteMtimeMs = new Map<string, number>();
@@ -278,11 +298,17 @@ export class SyncManager {
 
     const timer = setTimeout(() => {
       this.debounceTimers.delete(filePath);
-      void this.pushFile(filePath).catch((err) => {
-        console.error(`[issuesAsCode] push failed for "${filePath}":`, err);
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        void vscode().window.showErrorMessage(`Issue sync push failed for ${path.basename(filePath)}: ${message}`);
-      });
+      void this.pushFile(filePath)
+        .then((newPath) => {
+          if (newPath) {
+            void switchEditorToRenamedFile(filePath, newPath);
+          }
+        })
+        .catch((err) => {
+          console.error(`[issuesAsCode] push failed for "${filePath}":`, err);
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          void vscode().window.showErrorMessage(`Issue sync push failed for ${path.basename(filePath)}: ${message}`);
+        });
     }, this.config.pushOnSaveDelay * 1000);
 
     this.debounceTimers.set(filePath, timer);
