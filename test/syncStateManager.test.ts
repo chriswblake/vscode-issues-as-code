@@ -117,7 +117,6 @@ suite('syncStateManager – load', () => {
     // Assert
     assert.strictEqual(manager.getSyncedAt('/issues/open/7-thing.md'), '2024-07-01T00:00:00Z');
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -215,7 +214,7 @@ suite('syncStateManager – YAML file structure', () => {
 
     // Assert
     const raw = fs.readFileSync(statePath, 'utf8');
-    assert.doesNotThrow(() => yaml.safeLoad(raw));
+    assert.doesNotThrow(() => yaml.load(raw));
   });
 
   test('written file has a top-level "files" key', async () => {
@@ -228,7 +227,7 @@ suite('syncStateManager – YAML file structure', () => {
     await manager.setSyncedAt('/issues/1-test.md', makeRemoteInfo());
 
     // Assert
-    const parsed = yaml.safeLoad(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+    const parsed = yaml.load(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
     assert.ok(typeof parsed['files'] === 'object' && parsed['files'] !== null);
     assert.ok(!('version' in parsed), '"version" key must not appear in new format');
     assert.ok(!('targets' in parsed), '"targets" key must not appear in new format');
@@ -245,7 +244,7 @@ suite('syncStateManager – YAML file structure', () => {
     await manager.setSyncedAt('/issues/42-fix.md', remote);
 
     // Assert
-    const parsed = yaml.safeLoad(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+    const parsed = yaml.load(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
     const ghIssues = parsed['gh-issues'] as Record<string, unknown>;
     assert.ok(typeof ghIssues === 'object' && ghIssues !== null, 'gh-issues section should exist');
     const record = ghIssues['owner/repo/42'] as Record<string, unknown>;
@@ -264,7 +263,7 @@ suite('syncStateManager – YAML file structure', () => {
     await manager.setSyncedAt('/issues/7-test.md', remote);
 
     // Assert
-    const parsed = yaml.safeLoad(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+    const parsed = yaml.load(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
     const files = parsed['files'] as Record<string, unknown>;
     const fileEntry = files['/issues/7-test.md'] as Record<string, unknown>;
     const ghRef = fileEntry['gh-issues'] as Record<string, unknown>;
@@ -289,7 +288,7 @@ suite('syncStateManager – YAML file structure', () => {
     await manager.setSyncedAt('/issues/42-fix.md', remote);
 
     // Assert
-    const parsed = yaml.safeLoad(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+    const parsed = yaml.load(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
     const ghIssues = parsed['gh-issues'] as Record<string, Record<string, unknown>>;
     const record = ghIssues['owner/repo/42'];
     assert.strictEqual(record['state'], 'closed');
@@ -613,7 +612,7 @@ suite('syncStateManager – watchForDeletion', () => {
           manager.dispose();
           try {
             assert.ok(fs.existsSync(statePath), 'file should be recreated');
-            const parsed = yaml.safeLoad(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+            const parsed = yaml.load(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
             const files = parsed['files'] as Record<string, unknown>;
             assert.ok(files['/issues/1.md'], 'state should be preserved in recreated file');
             done();
@@ -625,4 +624,3 @@ suite('syncStateManager – watchForDeletion', () => {
       .catch(done);
   });
 });
-

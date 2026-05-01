@@ -96,8 +96,8 @@ export class SyncStateManager {
   async load(): Promise<void> {
     try {
       const raw = await fs.promises.readFile(this.statePath, 'utf8');
-      // yaml.safeLoad handles both YAML and JSON
-      const parsed = yaml.safeLoad(raw) as SyncStateFile | LegacyV2SyncStateFile | LegacyV1SyncStateFile | null;
+      // yaml.load handles both YAML and JSON
+      const parsed = yaml.load(raw) as SyncStateFile | LegacyV2SyncStateFile | LegacyV1SyncStateFile | null;
 
       if (!parsed || typeof parsed !== 'object') {
         this.state = { files: {} };
@@ -253,7 +253,7 @@ export class SyncStateManager {
     await fs.promises.mkdir(path.dirname(this.statePath), { recursive: true });
     await fs.promises.writeFile(
       this.statePath, //
-      yaml.safeDump(this.state, { lineWidth: -1, noRefs: true }),
+      yaml.dump(this.state, { lineWidth: -1, noRefs: true }),
       'utf8',
     );
   }

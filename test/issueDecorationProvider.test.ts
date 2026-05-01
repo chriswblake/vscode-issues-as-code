@@ -278,7 +278,7 @@ suite('syncStateManager – local_written_at', () => {
     await manager.setSyncedAt('/issues/1.md', makeRemoteInfo());
 
     // Assert
-    const raw = yaml.safeLoad(fs.readFileSync(statePath, 'utf8')) as { files: Record<string, Record<string, unknown>> };
+    const raw = yaml.load(fs.readFileSync(statePath, 'utf8')) as { files: Record<string, Record<string, unknown>> };
     assert.ok(typeof raw.files['/issues/1.md']['local_written_at'] === 'string');
   });
 });
