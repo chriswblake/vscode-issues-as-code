@@ -9,6 +9,8 @@ export interface RemoteIssueInfo {
   updated_at: string;
   closed_at: string | null;
   html_url: string;
+  node_id?: string;
+  repository?: string;
 }
 
 /** A reference from a file entry to a plugin record. */
@@ -98,6 +100,21 @@ export class SyncStateManager {
     return this.state.files[filePath];
   }
 
+  /** Returns the plugin data record for a file's remote key, or undefined. */
+  getPluginData(filePath: string, pluginId: string): Record<string, unknown> | undefined {
+    const entry = this.state.files[filePath];
+    const ref = entry?.plugins?.[pluginId];
+    if (!ref) {
+      return undefined;
+    }
+    return this.state.pluginData?.[pluginId]?.[ref.key];
+  }
+
+  /** Returns the remote key for a file from its state entry. */
+  getRemoteKey(filePath: string, pluginId: string): string | undefined {
+    return this.state.files[filePath]?.plugins?.[pluginId]?.key;
+  }
+
   async setSyncedAt(filePath: string, remote: RemoteIssueInfo, pluginId: string, remoteKey: string): Promise<void> {
     // Update the plugin data section
     if (!this.state.pluginData) {
@@ -112,6 +129,8 @@ export class SyncStateManager {
       updated_at: remote.updated_at,
       closed_at: remote.closed_at,
       html_url: remote.html_url,
+      ...(remote.node_id ? { node_id: remote.node_id } : {}),
+      ...(remote.repository ? { repository: remote.repository } : {}),
     };
 
     // Update the files section

@@ -264,6 +264,7 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
       filesDir: m.target.filesDir,
       pluginId: m.plugin.id,
       displayName: m.plugin.displayName,
+      stateManager: m.stateManager,
     }));
     codeLensProvider.update(codeLensTargets);
   }

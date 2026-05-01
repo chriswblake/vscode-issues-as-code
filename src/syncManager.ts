@@ -234,19 +234,21 @@ export class SyncManager {
       return undefined;
     }
 
-    const remoteId = this.plugin.getRemoteId(frontmatter);
+    const stateEntry = this.stateManager.getEntry(filePath);
+    const remoteId = this.plugin.getRemoteId(frontmatter, stateEntry);
     const context = {
       workspaceFolderPath: this.workspaceFolder.uri.fsPath,
       stateManager: this.stateManager,
     };
 
+    let existingRemoteKey: string | undefined;
     if (remoteId !== undefined) {
       // Existing item — check for conflicts before pushing
-      const remoteKey = this.plugin.getRemoteKey(frontmatter, pluginConfig);
+      existingRemoteKey = this.plugin.getRemoteKey(frontmatter, pluginConfig, stateEntry);
 
       // Re-pull to get latest remote state for conflict check
       const items = await this.plugin.pull(pluginConfig, context);
-      const cloudItem = remoteKey ? items.find((i) => i.remoteKey === remoteKey) : undefined;
+      const cloudItem = existingRemoteKey ? items.find((i) => i.remoteKey === existingRemoteKey) : undefined;
 
       if (cloudItem && isConflict(cloudItem.remoteInfo.updated_at, this.stateManager.getSyncedAt(filePath))) {
         await this.handlePullConflict(filePath, cloudItem);
@@ -264,7 +266,7 @@ export class SyncManager {
       }
     }
 
-    const result = await this.plugin.push(frontmatter, body, pluginConfig, context);
+    const result = await this.plugin.push(frontmatter, body, pluginConfig, context, existingRemoteKey);
 
     // Write updated file with server-assigned data
     const naming = this.target.naming ?? this.config.fileNaming;
@@ -276,10 +278,7 @@ export class SyncManager {
       [this.plugin.id]: result.frontmatter,
     };
 
-    // Derive remoteKey from the updated frontmatter
-    const pushRemoteKey = this.plugin.getRemoteKey(updatedFrontmatter, pluginConfig) ?? '';
-
-    await this.writeFileSuppressed(expectedPath, updatedFrontmatter, result.body, result.remoteInfo, pushRemoteKey);
+    await this.writeFileSuppressed(expectedPath, updatedFrontmatter, result.body, result.remoteInfo, result.remoteKey);
 
     if (expectedPath !== filePath) {
       await this.unlinkSuppressed(filePath);

@@ -1,9 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { IssueFrontmatter } from '../fileManager';
-import { readIssueFile } from '../fileManager';
 import type { GitHubClient, IssueData } from './githubClient';
-import type { RemoteIssueInfo } from '../syncStateManager';
+import type { RemoteIssueInfo, SyncStateEntry } from '../syncStateManager';
 import type { PrimarySyncPlugin, PullItem, PushResult, PluginContext } from './syncPlugin';
 
 // ---------------------------------------------------------------------------
@@ -178,13 +177,15 @@ export function matchesFilter(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function issueToRemoteInfo(issue: IssueData): RemoteIssueInfo {
+function issueToRemoteInfo(issue: IssueData, repository?: string): RemoteIssueInfo {
   return {
     number: issue.number,
     state: issue.state,
     updated_at: issue.updated_at,
     closed_at: issue.closed_at,
     html_url: issue.html_url,
+    node_id: issue.node_id,
+    repository,
   };
 }
 
@@ -200,16 +201,13 @@ function issueToPullItem(issue: IssueData, repository: string): PullItem {
     remoteKey: `${repository}/${issue.number}`,
     namingTokens: issueToNamingTokens(issue),
     frontmatter: {
-      number: issue.number,
       title: issue.title,
       state: issue.state,
       labels: issue.labels,
       assignees: issue.assignees,
-      node_id: issue.node_id,
-      repository,
     },
     body: issue.body ?? '',
-    remoteInfo: issueToRemoteInfo(issue),
+    remoteInfo: issueToRemoteInfo(issue, repository),
   };
 }
 
@@ -280,13 +278,25 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
     body: string,
     pluginConfig: Record<string, unknown>,
     _context: PluginContext,
+    remoteKey?: string,
   ): Promise<PushResult> {
     const config = pluginConfig as unknown as GhIssuesPluginConfig;
     const ghIssues = getGhSection(frontmatter);
-    const issueNumber = ghIssues.number;
 
-    // Get repository from per-issue frontmatter, fall back to target-level config
-    const repository = ghIssues.repository ?? config.filters.repository ?? '';
+    // For existing items, parse identity from remoteKey (e.g. "owner/repo/42")
+    let issueNumber: number | undefined;
+    let repository: string;
+
+    if (remoteKey) {
+      const parts = remoteKey.split('/');
+      issueNumber = parseInt(parts[parts.length - 1], 10);
+      repository = parts.length >= 3 ? `${parts[0]}/${parts[1]}` : config.filters.repository ?? '';
+    } else {
+      // New issue — repository comes from config
+      issueNumber = undefined;
+      repository = config.filters.repository ?? '';
+    }
+
     const [owner, repo] = repository.split('/');
 
     if (issueNumber !== undefined) {
@@ -301,16 +311,15 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
 
       // Refresh from server
       const refreshed = await this.client.getIssue(owner, repo, issueNumber);
+      const resultKey = `${repository}/${refreshed.number}`;
       return {
-        remoteInfo: issueToRemoteInfo(refreshed),
+        remoteInfo: issueToRemoteInfo(refreshed, repository),
+        remoteKey: resultKey,
         frontmatter: {
-          number: refreshed.number,
           title: refreshed.title,
           state: refreshed.state,
           labels: refreshed.labels,
           assignees: refreshed.assignees,
-          node_id: refreshed.node_id,
-          repository,
         },
         namingTokens: issueToNamingTokens(refreshed),
         body,
@@ -325,16 +334,15 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
         assignees: ghIssues.assignees ?? [],
       });
 
+      const resultKey = `${repository}/${created.number}`;
       return {
-        remoteInfo: issueToRemoteInfo(created),
+        remoteInfo: issueToRemoteInfo(created, repository),
+        remoteKey: resultKey,
         frontmatter: {
-          number: created.number,
           title: created.title,
           state: created.state,
           labels: created.labels,
           assignees: created.assignees,
-          node_id: created.node_id,
-          repository,
         },
         namingTokens: issueToNamingTokens(created),
         body,
@@ -346,12 +354,28 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
     return buildFileName(namingTokens, template);
   }
 
-  getRemoteId(frontmatter: IssueFrontmatter): number | undefined {
+  getRemoteId(frontmatter: IssueFrontmatter, stateEntry?: SyncStateEntry): number | undefined {
+    // Check state entry first (preferred source)
+    const ref = stateEntry?.plugins?.['gh-issues'];
+    if (ref) {
+      const parts = ref.key.split('/');
+      const num = parseInt(parts[parts.length - 1], 10);
+      if (!isNaN(num)) {
+        return num;
+      }
+    }
+    // Fallback: legacy frontmatter (for files not yet migrated)
     const ghIssues = frontmatter['gh-issues'] as Record<string, unknown> | undefined;
     return typeof ghIssues?.number === 'number' ? ghIssues.number : undefined;
   }
 
-  getRemoteKey(frontmatter: IssueFrontmatter, pluginConfig: Record<string, unknown>): string | undefined {
+  getRemoteKey(frontmatter: IssueFrontmatter, pluginConfig: Record<string, unknown>, stateEntry?: SyncStateEntry): string | undefined {
+    // Check state entry first
+    const ref = stateEntry?.plugins?.['gh-issues'];
+    if (ref?.key) {
+      return ref.key;
+    }
+    // Fallback: legacy frontmatter
     const ghIssues = frontmatter['gh-issues'] as Record<string, unknown> | undefined;
     const remoteId = typeof ghIssues?.number === 'number' ? ghIssues.number : undefined;
     if (remoteId === undefined) {
@@ -366,13 +390,12 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
     // Parse remoteKey format: "owner/repo/number"
     const keyParts = remoteKey.split('/');
     const remoteId = parseInt(keyParts[keyParts.length - 1], 10);
-    const repository = keyParts.length >= 3 ? `${keyParts[0]}/${keyParts[1]}` : undefined;
 
     if (isNaN(remoteId)) {
       return null;
     }
 
-    // Try filename-based match first
+    // Try filename-based match
     let files: string[];
     try {
       files = await fs.promises.readdir(filesDir);
@@ -394,43 +417,7 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
         naming,
       );
       if (base.startsWith(expectedStart.replace(/-$/, ''))) {
-        const candidate = path.join(filesDir, file);
-
-        // Verify frontmatter matches to prevent prefix collisions (e.g. 42 vs 420)
-        try {
-          const { frontmatter } = await readIssueFile(candidate);
-          const ghData = frontmatter['gh-issues'] as Record<string, unknown> | undefined;
-          if (ghData?.number !== remoteId) {
-            continue;
-          }
-          if (repository && ghData?.repository !== repository) {
-            continue;
-          }
-        } catch {
-          continue;
-        }
-
-        return candidate;
-      }
-    }
-
-    // Fallback: scan all frontmatter for the remote ID
-    for (const file of files) {
-      if (!file.endsWith('.md')) {
-        continue;
-      }
-      const filePath = path.join(filesDir, file);
-      try {
-        const { frontmatter } = await readIssueFile(filePath);
-        const ghData = frontmatter['gh-issues'] as Record<string, unknown> | undefined;
-        if (ghData?.number === remoteId) {
-          if (repository && ghData?.repository !== repository) {
-            continue;
-          }
-          return filePath;
-        }
-      } catch {
-        /* unreadable file — skip */
+        return path.join(filesDir, file);
       }
     }
 

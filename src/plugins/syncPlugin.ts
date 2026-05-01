@@ -1,5 +1,5 @@
 import type { IssueFrontmatter } from '../fileManager';
-import type { SyncStateManager, RemoteIssueInfo } from '../syncStateManager';
+import type { SyncStateManager, SyncStateEntry, RemoteIssueInfo } from '../syncStateManager';
 
 // ---------------------------------------------------------------------------
 // Plugin result types
@@ -23,7 +23,9 @@ export interface PullItem {
 export interface PushResult {
   /** Updated remote info after the push. */
   remoteInfo: RemoteIssueInfo;
-  /** Updated frontmatter section for this plugin. */
+  /** The unique remote key for this item (e.g. "owner/repo/42"). */
+  remoteKey: string;
+  /** Updated frontmatter section for this plugin (editable fields only). */
   frontmatter: Record<string, unknown>;
   /** Updated naming tokens (e.g. if title changed on create). */
   namingTokens: Record<string, string | number>;
@@ -66,13 +68,15 @@ export interface PrimarySyncPlugin {
 
   /**
    * Pushes a local file's content to the remote service.
-   * Called for both new (create) and existing (update) items.
+   * For existing items, remoteKey identifies the remote resource.
+   * For new items, remoteKey is undefined.
    */
   push(
     frontmatter: IssueFrontmatter, //
     body: string,
     pluginConfig: Record<string, unknown>,
     context: PluginContext,
+    remoteKey?: string,
   ): Promise<PushResult>;
 
   /**
@@ -82,16 +86,16 @@ export interface PrimarySyncPlugin {
   buildFileName(namingTokens: Record<string, string | number>, template: string): string;
 
   /**
-   * Returns the plugin-specific numeric/string ID from frontmatter, if present.
-   * Used to determine if a file is "new" (unpublished) or existing.
+   * Returns the plugin-specific numeric/string ID, indicating the file is published.
+   * Checks the state entry first (preferred), falls back to frontmatter for legacy files.
    */
-  getRemoteId(frontmatter: IssueFrontmatter): number | string | undefined;
+  getRemoteId(frontmatter: IssueFrontmatter, stateEntry?: SyncStateEntry): number | string | undefined;
 
   /**
-   * Returns the unique remote key for a file's frontmatter (e.g. "owner/repo/42").
-   * Used for conflict detection and state lookups during push.
+   * Returns the unique remote key for a file (e.g. "owner/repo/42").
+   * Checks the state entry first, falls back to frontmatter + config.
    */
-  getRemoteKey(frontmatter: IssueFrontmatter, pluginConfig: Record<string, unknown>): string | undefined;
+  getRemoteKey(frontmatter: IssueFrontmatter, pluginConfig: Record<string, unknown>, stateEntry?: SyncStateEntry): string | undefined;
 
   /**
    * Finds an existing local file matching a remote item by name/frontmatter heuristic.
@@ -124,13 +128,14 @@ export interface MetadataPlugin {
   readonly id: string;
 
   /**
-   * Fetches metadata for an item identified by the primary plugin's frontmatter.
+   * Fetches metadata for an item identified by the primary plugin's remote info.
    * Returns the frontmatter section to merge under this plugin's namespace.
    */
   enrich(
     primaryFrontmatter: Record<string, unknown>, //
     pluginConfig: Record<string, unknown>,
     context: PluginContext,
+    remoteInfo?: RemoteIssueInfo,
   ): Promise<Record<string, unknown> | null>;
 }
 

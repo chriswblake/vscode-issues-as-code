@@ -1,5 +1,6 @@
 import { Octokit } from '@octokit/rest';
 import type { IssueFrontmatter } from '../fileManager';
+import type { RemoteIssueInfo } from '../syncStateManager';
 import type { MetadataPlugin, PluginContext } from './syncPlugin';
 
 // ---------------------------------------------------------------------------
@@ -30,11 +31,12 @@ export class GhProjectsPlugin implements MetadataPlugin {
   constructor(private readonly octokit: Octokit) {}
 
   async enrich(
-    primaryFrontmatter: Record<string, unknown>, //
+    _primaryFrontmatter: Record<string, unknown>, //
     _pluginConfig: Record<string, unknown>,
     _context: PluginContext,
+    remoteInfo?: RemoteIssueInfo,
   ): Promise<Record<string, unknown> | null> {
-    const nodeId = primaryFrontmatter['node_id'] as string | undefined;
+    const nodeId = remoteInfo?.node_id;
     if (!nodeId) {
       return null;
     }

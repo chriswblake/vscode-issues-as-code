@@ -24,6 +24,8 @@ When finishing a task, compare the new changes to the existing codebase. Refacto
 
 Use intuitive names for variables, functions, etc.
 
+Do not worry about supporting previous versions of the code. Refactor and simplify as needed. There have been no releases yet.
+
 ## Testing
 
 All unit tests must be independent.

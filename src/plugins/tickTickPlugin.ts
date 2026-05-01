@@ -1,4 +1,5 @@
 import type { IssueFrontmatter } from '../fileManager';
+import type { SyncStateEntry } from '../syncStateManager';
 import type { PrimarySyncPlugin, PullItem, PushResult, PluginContext } from './syncPlugin';
 
 // ---------------------------------------------------------------------------
@@ -23,6 +24,7 @@ export class TickTickPlugin implements PrimarySyncPlugin {
     _body: string,
     _pluginConfig: Record<string, unknown>,
     _context: PluginContext,
+    _remoteKey?: string,
   ): Promise<PushResult> {
     throw new Error('TickTick plugin is not yet implemented.');
   }
@@ -31,11 +33,11 @@ export class TickTickPlugin implements PrimarySyncPlugin {
     return template.replace(/\{[^}]+\}/g, 'untitled');
   }
 
-  getRemoteId(_frontmatter: IssueFrontmatter): undefined {
+  getRemoteId(_frontmatter: IssueFrontmatter, _stateEntry?: SyncStateEntry): undefined {
     return undefined;
   }
 
-  getRemoteKey(_frontmatter: IssueFrontmatter, _pluginConfig: Record<string, unknown>): undefined {
+  getRemoteKey(_frontmatter: IssueFrontmatter, _pluginConfig: Record<string, unknown>, _stateEntry?: SyncStateEntry): undefined {
     return undefined;
   }
 
