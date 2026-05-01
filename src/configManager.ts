@@ -2,10 +2,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export interface SyncTarget {
-  repository_url: string;
-  query: string;
-  /** Absolute path to the folder where issue files for this target are stored. */
-  location: string;
+  /** Absolute path to the folder where synced files for this target are stored. */
+  filesDir: string;
+  /** Template for file names. Uses plugin tokens like {pluginId.field}. */
+  naming?: string;
+  /** Plugin configurations keyed by plugin ID. */
+  [pluginId: string]: unknown;
 }
 
 export interface RepoInfo {
@@ -30,16 +32,21 @@ export interface IssueConfig {
   enableExperimentalProjects: boolean;
 }
 
-/**
- * Replaces `{today-Nd}` tokens with ISO date strings (YYYY-MM-DD).
- * Example: "closed:>{today-10d}" → "closed:>2026-04-12"
- */
-export function resolveQuery(query: string): string {
-  return query.replace(/\{today-(\d+)d\}/g, (_, n) => {
-    const d = new Date();
-    d.setDate(d.getDate() - parseInt(n, 10));
-    return d.toISOString().slice(0, 10);
-  });
+const DEFAULT_SYNC_STATE_PATH = '.issues/sync-state.yml';
+
+export function resolveWorkspacePath(rawPath: string, workspaceFolderPath: string): string {
+  if (path.isAbsolute(rawPath)) {
+    throw new Error('Absolute paths are not allowed in issuesAsCode configuration. Use a path relative to the workspace folder.');
+  }
+
+  return path.resolve(workspaceFolderPath, rawPath);
+}
+
+function resolveSyncTargets(rawTargets: SyncTarget[], workspaceFolderPath: string): SyncTarget[] {
+  return rawTargets.map((t) => ({
+    ...t,
+    filesDir: resolveWorkspacePath(t.filesDir, workspaceFolderPath),
+  }));
 }
 
 /**
@@ -47,9 +54,9 @@ export function resolveQuery(query: string): string {
  * Accepts explicit values for testability.
  */
 export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: unknown): IssueConfig {
+
   // When running in VS Code context, read from workspace configuration
   if (vscodeWorkspaceFolder !== undefined) {
-    // Dynamic import to avoid hard dependency on vscode in unit tests
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const vscode = require('vscode') as typeof import('vscode');
@@ -57,13 +64,10 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
       const cfg = vscode.workspace.getConfiguration('issuesAsCode', uri);
 
       const rawTargets = cfg.get<SyncTarget[]>('syncTargets') ?? [];
-      const syncTargets = rawTargets.map((t) => ({
-        ...t,
-        location: t.location.replace('{workspaceDir}', workspaceFolderPath),
-      }));
+      const syncTargets = resolveSyncTargets(rawTargets, workspaceFolderPath);
 
-      const rawSyncStatePath = cfg.get<string>('syncStatePath') ?? '{workspaceDir}/.issues/sync-state.json';
-      const syncStatePath = rawSyncStatePath.replace('{workspaceDir}', workspaceFolderPath);
+      const rawSyncStatePath = cfg.get<string>('syncStatePath') ?? DEFAULT_SYNC_STATE_PATH;
+      const syncStatePath = resolveWorkspacePath(rawSyncStatePath, workspaceFolderPath);
 
       const rawShowSyncIcons = cfg.get<Partial<ShowSyncIconsConfig>>('showSyncIcons') ?? {};
 
@@ -92,7 +96,7 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
     pushOnSaveDelay: 60,
     syncTargets: [],
     pullInterval: 30,
-    syncStatePath: path.join(workspaceFolderPath, '.issues', 'sync-state.json'),
+    syncStatePath: path.join(workspaceFolderPath, '.issues', 'sync-state.yml'),
     showSyncState: false,
     showSyncIcons: { newIssue: true, modified: true, synchronized: true },
     enableExperimentalProjects: false,
@@ -100,88 +104,15 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
 }
 
 /**
- * Builds default sync targets for a detected repo, mirroring the old default
- * syncFilters behaviour (open issues + issues closed in the last 10 days).
+ * Parses an "owner/repo" string into a RepoInfo object.
+ * Returns null if the string does not match the expected format.
  */
-export function defaultSyncTargets(owner: string, repo: string, workspaceFolderPath: string): SyncTarget[] {
-  const issuesBase = path.join(workspaceFolderPath, '.issues');
-  const repositoryUrl = `https://github.com/${owner}/${repo}`;
-  return [
-    {
-      repository_url: repositoryUrl,
-      query: 'is:issue state:open',
-      location: path.join(issuesBase, 'open'),
-    },
-    {
-      repository_url: repositoryUrl,
-      query: 'is:issue closed:>{today-10d}',
-      location: path.join(issuesBase, 'closed_10days'),
-    },
-  ];
-}
-
-/**
- * Extracts owner/repo from a SyncTarget's repository_url.
- * Returns null if the URL cannot be parsed.
- */
-export function repoInfoFromTarget(target: SyncTarget): RepoInfo | null {
-  return parseGitHubUrl(target.repository_url);
-}
-
-/**
- * Detects GitHub repo from git remote using vscode.git extension API.
- */
-export async function detectRepo(workspaceFolder: { uri: { fsPath: string } }): Promise<RepoInfo | null> {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const vscode = require('vscode');
-    const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
-    if (!gitExtension) {
-      return null;
-    }
-
-    const api = gitExtension.getAPI(1);
-    if (!api) {
-      return null;
-    }
-
-    const repo = api.repositories.find((r: { rootUri: { fsPath: string } }) => workspaceFolder.uri.fsPath.startsWith(r.rootUri.fsPath));
-    if (!repo) {
-      return null;
-    }
-
-    const remotes: Array<{ name: string; fetchUrl?: string; pushUrl?: string }> = repo.state.remotes ?? [];
-    if (remotes.length === 0) {
-      return null;
-    }
-
-    // Prefer "origin", fall back to first remote
-    const remote = remotes.find((r) => r.name === 'origin') ?? remotes[0];
-    const url = remote.fetchUrl ?? remote.pushUrl ?? '';
-
-    return parseGitHubUrl(url);
-  } catch {
+export function parseOwnerRepo(repository: string): RepoInfo | null {
+  const match = repository.match(/^([^/]+)\/([^/]+)$/);
+  if (!match) {
     return null;
   }
-}
-
-/**
- * Parses a GitHub remote URL (HTTPS or SSH) and returns owner/repo.
- */
-export function parseGitHubUrl(url: string): RepoInfo | null {
-  // HTTPS: https://github.com/owner/repo.git
-  const httpsMatch = url.match(/https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (httpsMatch) {
-    return { owner: httpsMatch[1], repo: httpsMatch[2] };
-  }
-
-  // SSH: git@github.com:owner/repo.git
-  const sshMatch = url.match(/git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (sshMatch) {
-    return { owner: sshMatch[1], repo: sshMatch[2] };
-  }
-
-  return null;
+  return { owner: match[1], repo: match[2] };
 }
 
 /**
@@ -191,15 +122,12 @@ export function parseGitHubUrl(url: string): RepoInfo | null {
 export async function ensureGitignore(workspaceRoot: string, locations: string[]): Promise<void> {
   const gitignorePath = path.join(workspaceRoot, '.gitignore');
 
-  // Build the set of gitignore entries — use the path relative to the workspace root.
-  // If the location is outside the workspace we skip it.
   const entries = new Set<string>();
   for (const loc of locations) {
     const rel = path.relative(workspaceRoot, loc);
     if (rel.startsWith('..')) {
       continue;
-    } // outside workspace
-    // Take the top-level segment so that e.g. ".issues/open" → ".issues/"
+    }
     const topLevel = rel.split(path.sep)[0];
     entries.add(topLevel + '/');
   }

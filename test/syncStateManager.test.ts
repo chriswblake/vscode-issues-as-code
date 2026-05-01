@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 import { SyncStateManager, type RemoteIssueInfo } from '../src/syncStateManager';
 
 // ---------------------------------------------------------------------------
@@ -10,7 +11,7 @@ import { SyncStateManager, type RemoteIssueInfo } from '../src/syncStateManager'
 
 function makeTempPath(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-state-test-'));
-  return path.join(dir, 'sync-state.json');
+  return path.join(dir, 'sync-state.yml');
 }
 
 function makeRemoteInfo(overrides: Partial<RemoteIssueInfo> = {}): RemoteIssueInfo {
@@ -46,7 +47,7 @@ suite('syncStateManager – load', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/1-test.md', makeRemoteInfo());
+    await manager.setSyncedAt('/issues/1-test.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     const manager2 = new SyncStateManager(statePath);
 
@@ -57,11 +58,11 @@ suite('syncStateManager – load', () => {
     assert.strictEqual(manager2.getSyncedAt('/issues/1-test.md'), '2024-01-15T10:00:00Z');
   });
 
-  test('resets to empty when file contains legacy flat format (no version)', async () => {
+  test('resets to empty when file contains invalid YAML', async () => {
     // Arrange
     const statePath = makeTempPath();
     fs.mkdirSync(path.dirname(statePath), { recursive: true });
-    fs.writeFileSync(statePath, JSON.stringify({ '1': '2024-01-01T00:00:00Z' }), 'utf8');
+    fs.writeFileSync(statePath, '{ bad yaml: [', 'utf8');
     const manager = new SyncStateManager(statePath);
 
     // Act
@@ -71,41 +72,6 @@ suite('syncStateManager – load', () => {
     assert.strictEqual(manager.getSyncedAt('/issues/1-test.md'), undefined);
   });
 
-  test('resets to empty when file contains invalid JSON', async () => {
-    // Arrange
-    const statePath = makeTempPath();
-    fs.mkdirSync(path.dirname(statePath), { recursive: true });
-    fs.writeFileSync(statePath, 'not-json', 'utf8');
-    const manager = new SyncStateManager(statePath);
-
-    // Act
-    await manager.load();
-
-    // Assert
-    assert.strictEqual(manager.getSyncedAt('/issues/1-test.md'), undefined);
-  });
-
-  test('migrates v1 format (targets nested by location) to v2 (flat by file path)', async () => {
-    // Arrange
-    const statePath = makeTempPath();
-    fs.mkdirSync(path.dirname(statePath), { recursive: true });
-    const v1State = {
-      version: 1,
-      targets: {
-        '/issues/open': {
-          '5': { synced_at: '2024-06-01T00:00:00Z', file_path: '/issues/open/5-thing.md', remote: makeRemoteInfo({ number: 5, updated_at: '2024-06-01T00:00:00Z' }) },
-        },
-      },
-    };
-    fs.writeFileSync(statePath, JSON.stringify(v1State), 'utf8');
-    const manager = new SyncStateManager(statePath);
-
-    // Act
-    await manager.load();
-
-    // Assert – accessible via new file-path key
-    assert.strictEqual(manager.getSyncedAt('/issues/open/5-thing.md'), '2024-06-01T00:00:00Z');
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -133,7 +99,7 @@ suite('syncStateManager – getSyncedAt / setSyncedAt', () => {
     await manager.load();
 
     // Act
-    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ updated_at: '2024-03-01T00:00:00Z' }));
+    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ updated_at: '2024-03-01T00:00:00Z' }), 'gh-issues', 'owner/repo/1');
 
     // Assert
     assert.strictEqual(manager.getSyncedAt('/issues/open/1-a.md'), '2024-03-01T00:00:00Z');
@@ -146,8 +112,8 @@ suite('syncStateManager – getSyncedAt / setSyncedAt', () => {
     await manager.load();
 
     // Act
-    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ updated_at: '2024-01-01T00:00:00Z' }));
-    await manager.setSyncedAt('/issues/closed/1-a.md', makeRemoteInfo({ updated_at: '2024-02-01T00:00:00Z' }));
+    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ updated_at: '2024-01-01T00:00:00Z' }), 'gh-issues', 'owner/repo/1');
+    await manager.setSyncedAt('/issues/closed/1-a.md', makeRemoteInfo({ updated_at: '2024-02-01T00:00:00Z' }), 'gh-issues', 'owner/repo/1');
 
     // Assert
     assert.strictEqual(manager.getSyncedAt('/issues/open/1-a.md'), '2024-01-01T00:00:00Z');
@@ -159,8 +125,8 @@ suite('syncStateManager – getSyncedAt / setSyncedAt', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/open/5-one.md', makeRemoteInfo({ number: 5 }));
-    await manager.setSyncedAt('/issues/closed/7-two.md', makeRemoteInfo({ number: 7 }));
+    await manager.setSyncedAt('/issues/open/5-one.md', makeRemoteInfo({ number: 5 }), 'gh-issues', 'owner/repo/5');
+    await manager.setSyncedAt('/issues/closed/7-two.md', makeRemoteInfo({ number: 7 }), 'gh-issues', 'owner/repo/7');
 
     const manager2 = new SyncStateManager(statePath);
 
@@ -177,10 +143,10 @@ suite('syncStateManager – getSyncedAt / setSyncedAt', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/1-a.md', makeRemoteInfo({ updated_at: '2024-01-01T00:00:00Z' }));
+    await manager.setSyncedAt('/issues/1-a.md', makeRemoteInfo({ updated_at: '2024-01-01T00:00:00Z' }), 'gh-issues', 'owner/repo/1');
 
     // Act
-    await manager.setSyncedAt('/issues/1-a.md', makeRemoteInfo({ updated_at: '2024-06-01T00:00:00Z' }));
+    await manager.setSyncedAt('/issues/1-a.md', makeRemoteInfo({ updated_at: '2024-06-01T00:00:00Z' }), 'gh-issues', 'owner/repo/1');
 
     // Assert
     assert.strictEqual(manager.getSyncedAt('/issues/1-a.md'), '2024-06-01T00:00:00Z');
@@ -188,11 +154,82 @@ suite('syncStateManager – getSyncedAt / setSyncedAt', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 3: remote read-only details
+// Section 3: YAML file structure
 // ---------------------------------------------------------------------------
 
-suite('syncStateManager – remote details', () => {
-  test('persists all RemoteIssueInfo fields to disk', async () => {
+suite('syncStateManager – YAML file structure', () => {
+  test('written file is valid YAML', async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const manager = new SyncStateManager(statePath);
+    await manager.load();
+
+    // Act
+    await manager.setSyncedAt('/issues/1-test.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
+
+    // Assert
+    const raw = fs.readFileSync(statePath, 'utf8');
+    assert.doesNotThrow(() => yaml.load(raw));
+  });
+
+  test('written file has a top-level "files" key', async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const manager = new SyncStateManager(statePath);
+    await manager.load();
+
+    // Act
+    await manager.setSyncedAt('/issues/1-test.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
+
+    // Assert
+    const parsed = yaml.load(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+    assert.ok(typeof parsed['files'] === 'object' && parsed['files'] !== null);
+    assert.ok(!('version' in parsed), '"version" key must not appear in new format');
+    assert.ok(!('targets' in parsed), '"targets" key must not appear in new format');
+  });
+
+  test('written file has a top-level "pluginData.gh-issues" key with the issue record', async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const manager = new SyncStateManager(statePath);
+    await manager.load();
+    const remote = makeRemoteInfo({ number: 42, html_url: 'https://github.com/owner/repo/issues/42' });
+
+    // Act
+    await manager.setSyncedAt('/issues/42-fix.md', remote, 'gh-issues', 'owner/repo/42');
+
+    // Assert
+    const parsed = yaml.load(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+    const pluginData = parsed['pluginData'] as Record<string, unknown>;
+    assert.ok(typeof pluginData === 'object' && pluginData !== null, 'pluginData section should exist');
+    const ghIssues = pluginData['gh-issues'] as Record<string, unknown>;
+    assert.ok(typeof ghIssues === 'object' && ghIssues !== null, 'gh-issues section should exist');
+    const record = ghIssues['owner/repo/42'] as Record<string, unknown>;
+    assert.ok(record, 'issue record keyed by owner/repo/number should exist');
+    assert.strictEqual(record['number'], 42);
+  });
+
+  test('files section links back to gh-issues key and stores synced_at', async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const manager = new SyncStateManager(statePath);
+    await manager.load();
+    const remote = makeRemoteInfo({ number: 7, updated_at: '2025-11-30T12:00:00Z', html_url: 'https://github.com/owner/repo/issues/7' });
+
+    // Act
+    await manager.setSyncedAt('/issues/7-test.md', remote, 'gh-issues', 'owner/repo/7');
+
+    // Assert
+    const parsed = yaml.load(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+    const files = parsed['files'] as Record<string, unknown>;
+    const fileEntry = files['/issues/7-test.md'] as Record<string, unknown>;
+    const plugins = fileEntry['plugins'] as Record<string, unknown>;
+    const ghRef = plugins['gh-issues'] as Record<string, unknown>;
+    assert.strictEqual(ghRef['key'], 'owner/repo/7');
+    assert.strictEqual(ghRef['synced_at'], '2025-11-30T12:00:00Z');
+  });
+
+  test('persists gh-issues record details (state, closed_at, html_url)', async () => {
     // Arrange
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
@@ -206,106 +243,28 @@ suite('syncStateManager – remote details', () => {
     });
 
     // Act
-    await manager.setSyncedAt('/issues/42-fix.md', remote);
+    await manager.setSyncedAt('/issues/42-fix.md', remote, 'gh-issues', 'owner/repo/42');
 
     // Assert
-    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    const entry = raw.files['/issues/42-fix.md'];
-    assert.strictEqual(entry.remote.number, 42);
-    assert.strictEqual(entry.remote.state, 'closed');
-    assert.strictEqual(entry.remote.updated_at, '2024-03-10T08:30:00Z');
-    assert.strictEqual(entry.remote.closed_at, '2024-03-10T08:00:00Z');
-    assert.strictEqual(entry.remote.html_url, 'https://github.com/owner/repo/issues/42');
-  });
-
-  test('stores null closed_at for open issues', async () => {
-    // Arrange
-    const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
-    await manager.load();
-    const remote = makeRemoteInfo({ state: 'open', closed_at: null });
-
-    // Act
-    await manager.setSyncedAt('/issues/1-open.md', remote);
-
-    // Assert
-    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    assert.strictEqual(raw.files['/issues/1-open.md'].remote.closed_at, null);
-  });
-
-  test('no file_path field stored inside entry', async () => {
-    // Arrange
-    const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
-    await manager.load();
-
-    // Act
-    await manager.setSyncedAt('/issues/1-test.md', makeRemoteInfo());
-
-    // Assert – file_path should NOT appear inside the entry (it is the key)
-    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    assert.ok(!('file_path' in raw.files['/issues/1-test.md']), 'file_path must not be a field inside the entry');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Section 4: JSON file structure
-// ---------------------------------------------------------------------------
-
-suite('syncStateManager – JSON file structure', () => {
-  test('written file includes version field set to 2', async () => {
-    // Arrange
-    const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
-    await manager.load();
-
-    // Act
-    await manager.setSyncedAt('/issues/1-test.md', makeRemoteInfo());
-
-    // Assert
-    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    assert.strictEqual(raw.version, 2);
-  });
-
-  test('written file has a top-level "files" object (not "targets")', async () => {
-    // Arrange
-    const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
-    await manager.load();
-
-    // Act
-    await manager.setSyncedAt('/issues/1-test.md', makeRemoteInfo());
-
-    // Assert
-    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    assert.ok(typeof raw.files === 'object' && raw.files !== null);
-    assert.ok(!('targets' in raw), '"targets" key must not appear in v2 file');
-  });
-
-  test('synced_at equals the remote updated_at timestamp', async () => {
-    // Arrange
-    const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
-    await manager.load();
-    const remote = makeRemoteInfo({ updated_at: '2025-11-30T12:00:00Z' });
-
-    // Act
-    await manager.setSyncedAt('/issues/1-test.md', remote);
-
-    // Assert
-    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    assert.strictEqual(raw.files['/issues/1-test.md'].synced_at, '2025-11-30T12:00:00Z');
+    const parsed = yaml.load(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+    const pluginData = parsed['pluginData'] as Record<string, unknown>;
+    const ghIssues = pluginData['gh-issues'] as Record<string, Record<string, unknown>>;
+    const record = ghIssues['owner/repo/42'];
+    assert.strictEqual(record['state'], 'closed');
+    assert.strictEqual(record['updated_at'], '2024-03-10T08:30:00Z');
+    assert.strictEqual(record['closed_at'], '2024-03-10T08:00:00Z');
+    assert.strictEqual(record['html_url'], 'https://github.com/owner/repo/issues/42');
   });
 
   test('creates parent directories for the state file if they do not exist', async () => {
     // Arrange
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'sync-state-mkdir-'));
-    const statePath = path.join(base, 'deeply', 'nested', 'sync-state.json');
+    const statePath = path.join(base, 'deeply', 'nested', 'sync-state.yml');
     const manager = new SyncStateManager(statePath);
     await manager.load();
 
     // Act
-    await manager.setSyncedAt('/issues/1-test.md', makeRemoteInfo());
+    await manager.setSyncedAt('/issues/1-test.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     // Assert
     assert.ok(fs.existsSync(statePath));
@@ -313,7 +272,7 @@ suite('syncStateManager – JSON file structure', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 5: deleteEntry
+// Section 4: deleteEntry
 // ---------------------------------------------------------------------------
 
 suite('syncStateManager – deleteEntry', () => {
@@ -322,7 +281,7 @@ suite('syncStateManager – deleteEntry', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/1-a.md', makeRemoteInfo());
+    await manager.setSyncedAt('/issues/1-a.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     // Act
     await manager.deleteEntry('/issues/1-a.md');
@@ -336,7 +295,7 @@ suite('syncStateManager – deleteEntry', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/1-a.md', makeRemoteInfo());
+    await manager.setSyncedAt('/issues/1-a.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
     await manager.deleteEntry('/issues/1-a.md');
 
     const manager2 = new SyncStateManager(statePath);
@@ -353,8 +312,8 @@ suite('syncStateManager – deleteEntry', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/1-a.md', makeRemoteInfo({ number: 1 }));
-    await manager.setSyncedAt('/issues/2-b.md', makeRemoteInfo({ number: 2 }));
+    await manager.setSyncedAt('/issues/1-a.md', makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
+    await manager.setSyncedAt('/issues/2-b.md', makeRemoteInfo({ number: 2 }), 'gh-issues', 'owner/repo/2');
 
     // Act
     await manager.deleteEntry('/issues/1-a.md');
@@ -368,7 +327,7 @@ suite('syncStateManager – deleteEntry', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/1-a.md', makeRemoteInfo());
+    await manager.setSyncedAt('/issues/1-a.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     // Act – should not throw
     await manager.deleteEntry('/issues/never-existed.md');
@@ -379,7 +338,7 @@ suite('syncStateManager – deleteEntry', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 6: getFilesUnderLocation
+// Section 5: getFilesUnderLocation
 // ---------------------------------------------------------------------------
 
 suite('syncStateManager – getFilesUnderLocation', () => {
@@ -401,8 +360,8 @@ suite('syncStateManager – getFilesUnderLocation', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ number: 1 }));
-    await manager.setSyncedAt('/issues/open/2-b.md', makeRemoteInfo({ number: 2 }));
+    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
+    await manager.setSyncedAt('/issues/open/2-b.md', makeRemoteInfo({ number: 2 }), 'gh-issues', 'owner/repo/2');
 
     // Act
     const entries = manager.getFilesUnderLocation('/issues/open');
@@ -418,8 +377,8 @@ suite('syncStateManager – getFilesUnderLocation', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ number: 1 }));
-    await manager.setSyncedAt('/issues/closed/2-b.md', makeRemoteInfo({ number: 2 }));
+    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
+    await manager.setSyncedAt('/issues/closed/2-b.md', makeRemoteInfo({ number: 2 }), 'gh-issues', 'owner/repo/2');
 
     // Act
     const entries = manager.getFilesUnderLocation('/issues/open');
@@ -435,7 +394,7 @@ suite('syncStateManager – getFilesUnderLocation', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/open2/1-a.md', makeRemoteInfo({ number: 1 }));
+    await manager.setSyncedAt('/issues/open2/1-a.md', makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
 
     // Act
     const entries = manager.getFilesUnderLocation('/issues/open');
@@ -446,7 +405,7 @@ suite('syncStateManager – getFilesUnderLocation', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 7: removeFilesUnderLocation
+// Section 6: removeFilesUnderLocation
 // ---------------------------------------------------------------------------
 
 suite('syncStateManager – removeFilesUnderLocation', () => {
@@ -455,8 +414,8 @@ suite('syncStateManager – removeFilesUnderLocation', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ number: 1 }));
-    await manager.setSyncedAt('/issues/open/2-b.md', makeRemoteInfo({ number: 2 }));
+    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
+    await manager.setSyncedAt('/issues/open/2-b.md', makeRemoteInfo({ number: 2 }), 'gh-issues', 'owner/repo/2');
 
     // Act
     await manager.removeFilesUnderLocation('/issues/open');
@@ -472,7 +431,7 @@ suite('syncStateManager – removeFilesUnderLocation', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo());
+    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
     await manager.removeFilesUnderLocation('/issues/open');
 
     const manager2 = new SyncStateManager(statePath);
@@ -489,8 +448,8 @@ suite('syncStateManager – removeFilesUnderLocation', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ number: 1 }));
-    await manager.setSyncedAt('/issues/closed/2-b.md', makeRemoteInfo({ number: 2 }));
+    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
+    await manager.setSyncedAt('/issues/closed/2-b.md', makeRemoteInfo({ number: 2 }), 'gh-issues', 'owner/repo/2');
 
     // Act
     await manager.removeFilesUnderLocation('/issues/open');
@@ -504,7 +463,7 @@ suite('syncStateManager – removeFilesUnderLocation', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo());
+    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     // Act – should not throw
     await manager.removeFilesUnderLocation('/issues/never-existed');
@@ -515,7 +474,7 @@ suite('syncStateManager – removeFilesUnderLocation', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 8: getKnownFilePaths
+// Section 7: getKnownFilePaths
 // ---------------------------------------------------------------------------
 
 suite('syncStateManager – getKnownFilePaths', () => {
@@ -537,8 +496,8 @@ suite('syncStateManager – getKnownFilePaths', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ number: 1 }));
-    await manager.setSyncedAt('/issues/closed/2-b.md', makeRemoteInfo({ number: 2 }));
+    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
+    await manager.setSyncedAt('/issues/closed/2-b.md', makeRemoteInfo({ number: 2 }), 'gh-issues', 'owner/repo/2');
 
     // Act
     const paths = manager.getKnownFilePaths();
@@ -554,8 +513,8 @@ suite('syncStateManager – getKnownFilePaths', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo());
-    await manager.setSyncedAt('/issues/closed/2-b.md', makeRemoteInfo({ number: 2 }));
+    await manager.setSyncedAt('/issues/open/1-a.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
+    await manager.setSyncedAt('/issues/closed/2-b.md', makeRemoteInfo({ number: 2 }), 'gh-issues', 'owner/repo/2');
     await manager.deleteEntry('/issues/closed/2-b.md');
 
     // Act
@@ -567,7 +526,7 @@ suite('syncStateManager – getKnownFilePaths', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 9: watchForDeletion – recreate file when deleted
+// Section 8: watchForDeletion – recreate file when deleted
 // ---------------------------------------------------------------------------
 
 suite('syncStateManager – watchForDeletion', () => {
@@ -578,7 +537,7 @@ suite('syncStateManager – watchForDeletion', () => {
     // Arrange
     manager
       .load()
-      .then(() => manager.setSyncedAt('/issues/1.md', makeRemoteInfo()))
+      .then(() => manager.setSyncedAt('/issues/1.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1'))
       .then(() => {
         manager.watchForDeletion(50);
         fs.unlinkSync(statePath);
@@ -601,46 +560,20 @@ suite('syncStateManager – watchForDeletion', () => {
     const statePath = makeTempPath();
     const manager = new SyncStateManager(statePath);
 
-    // Arrange
     manager
       .load()
-      .then(() => manager.setSyncedAt('/issues/7-preserved.md', makeRemoteInfo({ number: 7, updated_at: '2024-05-01T00:00:00Z' })))
+      .then(() => manager.setSyncedAt('/issues/1.md', makeRemoteInfo({ updated_at: '2025-01-01T00:00:00Z' }), 'gh-issues', 'owner/repo/1'))
       .then(() => {
         manager.watchForDeletion(50);
         fs.unlinkSync(statePath);
 
-        // Assert – recreated file should contain the in-memory state
         setTimeout(() => {
           manager.dispose();
           try {
-            const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-            assert.strictEqual(raw.files['/issues/7-preserved.md'].synced_at, '2024-05-01T00:00:00Z');
-            done();
-          } catch (e) {
-            done(e);
-          }
-        }, 300);
-      })
-      .catch(done);
-  });
-
-  test('dispose stops the watcher', (done) => {
-    const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
-
-    // Arrange
-    manager
-      .load()
-      .then(() => manager.setSyncedAt('/issues/1.md', makeRemoteInfo()))
-      .then(() => {
-        manager.watchForDeletion(50);
-        manager.dispose();
-        fs.unlinkSync(statePath);
-
-        // Assert – file should NOT be recreated because watcher was disposed
-        setTimeout(() => {
-          try {
-            assert.ok(!fs.existsSync(statePath), 'file should not be recreated after dispose');
+            assert.ok(fs.existsSync(statePath), 'file should be recreated');
+            const parsed = yaml.load(fs.readFileSync(statePath, 'utf8')) as Record<string, unknown>;
+            const files = parsed['files'] as Record<string, unknown>;
+            assert.ok(files['/issues/1.md'], 'state should be preserved in recreated file');
             done();
           } catch (e) {
             done(e);

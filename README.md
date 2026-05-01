@@ -20,7 +20,7 @@ Synchronize GitHub issues to a local `.issues/` folder — edit them as Markdown
 - **Auto-reorganize files** — files are moved to the correct folder when `syncTargets` are updated
 - **Sync state icons** — A / M / ✓ badges in the Explorer show new, modified, and synchronized issues
 - **Sync notifications** — progress notifications during pull and push operations
-- **Dedicated sync state file** — sync metadata is stored in a separate `sync-state.json` rather than in issue frontmatter
+- **Dedicated sync state file** — sync metadata is stored in a separate `sync-state.yml` rather than in issue frontmatter
 
 ## Getting Started
 
@@ -44,7 +44,7 @@ All settings have `"scope": "resource"` so they can be set per workspace folder.
 | `issuesAsCode.pushOnSaveDelay` | `number`  | `60`                                                     | Seconds to wait after last save before pushing                |
 | `issuesAsCode.syncTargets`     | `array`   | `[]`                                                     | Repositories and queries to sync (see below)                  |
 | `issuesAsCode.pullInterval`    | `number`  | `30`                                                     | Minutes between automatic pulls                               |
-| `issuesAsCode.syncStatePath`   | `string`  | `{workspaceDir}/.issues/sync-state.json`                 | Path to the local sync state file (machine-local, gitignored) |
+| `issuesAsCode.syncStatePath`   | `string`  | `.issues/sync-state.yml`                                 | Path to the local sync state file (machine-local, gitignored) |
 | `issuesAsCode.showSyncState`   | `boolean` | `false`                                                  | Show the sync state file in the VS Code Explorer              |
 | `issuesAsCode.showSyncIcons`   | `object`  | `{ newIssue: true, modified: true, synchronized: true }` | Controls which sync status badges appear on issue files       |
 
@@ -57,24 +57,24 @@ Each entry defines one repository + query + local folder combination:
   {
     "repository_url": "https://github.com/my-org/my-repo",
     "query": "is:issue state:open",
-    "location": "{workspaceDir}/.issues/my-repo/open"
+    "location": ".issues/my-repo/open"
   },
   {
     "repository_url": "https://github.com/my-org/my-repo",
     "query": "is:issue closed:>{today-10d}",
-    "location": "{workspaceDir}/.issues/my-repo/closed_10days"
+    "location": ".issues/my-repo/closed_10days"
   },
   {
     "repository_url": "https://github.com/another-org/another-repo",
     "query": "is:issue state:open",
-    "location": "{workspaceDir}/.issues/another-repo/open"
+    "location": ".issues/another-repo/open"
   }
 ]
 ```
 
-Use `{workspaceDir}` as a placeholder for the workspace root folder. The `query` field supports the full GitHub issue search syntax and the `{today-Nd}` date token.
+Paths must be relative to the current workspace folder; absolute paths are not allowed. The `query` field supports the full GitHub issue search syntax and the `{today-Nd}` date token.
 
-When `syncTargets` is empty (the default) the extension falls back to auto-detecting the repository from the workspace git remote and creates two targets: open issues and issues closed in the last 10 days, stored under `{workspaceDir}/.issues/open` and `{workspaceDir}/.issues/closed_10days`.
+When `syncTargets` is empty (the default) the extension falls back to auto-detecting the repository from the workspace git remote and creates two targets: open issues and issues closed in the last 10 days, stored under `.issues/open` and `.issues/closed_10days`.
 
 ## How Sync Works
 
@@ -82,7 +82,7 @@ On activation the extension reads `issuesAsCode.syncTargets` and creates one syn
 
 If the remote version was updated since your last sync, simple non-conflicting changes are auto-accepted from the remote. If both sides changed the same content, a standard merge editor opens so you can resolve the conflict manually. Every configured location's top-level directory is added to `.gitignore` automatically.
 
-Sync state (last-synced timestamps) is stored in a dedicated `sync-state.json` file rather than in issue frontmatter. This file is machine-local and is automatically gitignored. File names are updated automatically when an issue's title changes on GitHub, and files are moved to the correct folder if `syncTargets` are modified.
+Sync state (last-synced timestamps) is stored in a dedicated `sync-state.yml` file rather than in issue frontmatter. This file is machine-local and is automatically gitignored. File names are updated automatically when an issue's title changes on GitHub, and files are moved to the correct folder if `syncTargets` are modified.
 
 ## Commands
 

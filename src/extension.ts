@@ -1,13 +1,16 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { detectRepo, getConfig, ensureGitignore, defaultSyncTargets, repoInfoFromTarget, type SyncTarget } from './configManager';
-import { GitHubClient } from './githubClient';
-import { SyncManager, reconcileTargetChanges } from './syncManager';
+import { getConfig, ensureGitignore, type SyncTarget } from './configManager';
+import { SyncManager, reconcileTargetChanges, switchEditorToRenamedFile } from './syncManager';
 import { SyncStateManager } from './syncStateManager';
 import { IssueDecorationProvider } from './issueDecorationProvider';
+import { PublishCodeLensProvider } from './publishCodeLensProvider';
+import { initializePlugins, registerPluginCommands, detectDefaultTargets } from './plugins/loader';
+import { getPrimaryPlugin, getPrimaryPluginIds, type PrimarySyncPlugin } from './plugins/syncPlugin';
 
 const syncManagers: SyncManager[] = [];
 let decorationProvider: IssueDecorationProvider | undefined;
+let codeLensProvider: PublishCodeLensProvider | undefined;
 
 // Serializes reinitializations so rapid config-change events don't overlap.
 // Each call is chained after the previous one; all callers await the same chain tail.
@@ -18,9 +21,25 @@ const CONFIG_CHANGE_DEBOUNCE_MS = 3000;
 let configChangeDebounceTimer: NodeJS.Timeout | null = null;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  // Register the file decoration provider once
+  registerProviders(context);
+  await reinitializeAllFolders(context);
+  registerCommands(context);
+}
+
+// ---------------------------------------------------------------------------
+// Provider registration
+// ---------------------------------------------------------------------------
+
+function registerProviders(context: vscode.ExtensionContext): void {
+  // File decoration provider (sync state badges)
   decorationProvider = new IssueDecorationProvider();
   context.subscriptions.push(vscode.window.registerFileDecorationProvider(decorationProvider));
+
+  // CodeLens provider for unpublished files
+  codeLensProvider = new PublishCodeLensProvider();
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider({ scheme: 'file', language: 'markdown' }, codeLensProvider),
+  );
 
   // Track unsaved editor changes to show M badge immediately
   context.subscriptions.push(
@@ -36,76 +55,62 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       decorationProvider?.clearDirty(document.uri.fsPath);
     }),
   );
+}
 
-  await reinitializeAllFolders(context);
+// ---------------------------------------------------------------------------
+// Command registration
+// ---------------------------------------------------------------------------
+
+function registerCommands(context: vscode.ExtensionContext): void {
+  async function ensureManagersAndPull(): Promise<void> {
+    if (syncManagers.length === 0) {
+      await reinitializeAllFolders(context);
+    }
+    if (syncManagers.length === 0) {
+      void vscode.window.showWarningMessage('No sync targets are active for this workspace. Configure issuesAsCode.syncTargets or open a folder with a GitHub remote.');
+      return;
+    }
+    syncManagers.forEach((m) => void m.pullAll());
+  }
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('issuesAsCode.pullNow', async () => {
-      if (syncManagers.length === 0) {
-        await reinitializeAllFolders(context);
-      }
-      if (syncManagers.length === 0) {
-        void vscode.window.showWarningMessage('No sync targets are active for this workspace. Configure issuesAsCode.syncTargets or open a folder with a GitHub remote.');
-        return;
-      }
-      syncManagers.forEach((m) => void m.pullAll());
-    }),
-    vscode.commands.registerCommand('issuesAsCode.pushNow', () => {
+    vscode.commands.registerCommand('issuesAsCode.pullNow', ensureManagersAndPull),
+    vscode.commands.registerCommand('issuesAsCode.pushNow', async () => {
       const editor = vscode.window.activeTextEditor;
       if (editor) {
         const filePath = editor.document.uri.fsPath;
-        // Push via the manager that owns this file
         const manager = syncManagers.find((m) => m.ownsFile(filePath));
         if (manager) {
-          void manager.pushFile(filePath);
+          const newPath = await manager.pushFile(filePath);
+          if (newPath) {
+            await switchEditorToRenamedFile(filePath, newPath);
+          }
         }
       }
     }),
-    vscode.commands.registerCommand('issuesAsCode.refresh', async () => {
-      if (syncManagers.length === 0) {
-        await reinitializeAllFolders(context);
-      }
-      if (syncManagers.length === 0) {
-        void vscode.window.showWarningMessage('No sync targets are active for this workspace. Configure issuesAsCode.syncTargets or open a folder with a GitHub remote.');
-        return;
-      }
-      syncManagers.forEach((m) => void m.pullAll());
-    }),
-    vscode.commands.registerCommand('issuesAsCode.addOpenIssuesDefaultConfig', async () => {
-      const folder = getActiveWorkspaceFolder();
-      if (!folder) {
-        void vscode.window.showErrorMessage('No workspace folder is open.');
+    vscode.commands.registerCommand('issuesAsCode.refresh', ensureManagersAndPull),
+    vscode.commands.registerCommand('issuesAsCode.publishFile', async (uri?: vscode.Uri) => {
+      const targetUri = uri ?? vscode.window.activeTextEditor?.document.uri;
+      if (!targetUri) {
+        void vscode.window.showWarningMessage('No file is open to publish.');
         return;
       }
 
-      const repoInfo = await detectRepo(folder);
-      if (!repoInfo) {
-        void vscode.window.showErrorMessage('Could not detect a GitHub repository from this workspace folder.');
+      const filePath = targetUri.fsPath;
+      const manager = syncManagers.find((m) => m.ownsFile(filePath));
+      if (!manager) {
+        void vscode.window.showWarningMessage('This file is not inside a managed sync target folder.');
         return;
       }
 
-      const cfg = vscode.workspace.getConfiguration('issuesAsCode', folder.uri);
-      const currentTargets = cfg.get<Array<{ repository_url: string; query: string; location: string }>>('syncTargets') ?? [];
-
-      const repositoryUrl = `https://github.com/${repoInfo.owner}/${repoInfo.repo}`;
-      const openIssuesTarget = {
-        repository_url: repositoryUrl,
-        query: 'is:issue state:open',
-        location: '{workspaceDir}/.issues/open',
-      };
-
-      const hasOpenTarget = currentTargets.some((t) => t.repository_url === repositoryUrl && t.query.trim() === openIssuesTarget.query);
-
-      if (hasOpenTarget) {
-        void vscode.window.showInformationMessage(`Open issues sync target already exists for ${repoInfo.owner}/${repoInfo.repo}.`);
-        return;
+      try {
+        const newPath = await manager.pushFile(filePath);
+        if (newPath) {
+          await switchEditorToRenamedFile(filePath, newPath);
+        }
+      } catch (err) {
+        void vscode.window.showErrorMessage(`Failed to publish file: ${err instanceof Error ? err.message : String(err)}`);
       }
-
-      await cfg.update('syncTargets', [...currentTargets, openIssuesTarget], vscode.ConfigurationTarget.WorkspaceFolder);
-
-      await reinitializeAllFolders(context);
-
-      void vscode.window.showInformationMessage(`Added default open issues sync target for ${repoInfo.owner}/${repoInfo.repo}.`);
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('issuesAsCode')) {
@@ -119,7 +124,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }),
   );
+
+  // Plugin-specific commands
+  registerPluginCommands(context, () => reinitializeAllFolders(context));
 }
+
+// ---------------------------------------------------------------------------
+// Initialization
+// ---------------------------------------------------------------------------
 
 async function reinitializeAllFolders(context: vscode.ExtensionContext): Promise<void> {
   reinitializeChain = reinitializeChain
@@ -152,9 +164,9 @@ async function doReinitializeAllFolders(context: vscode.ExtensionContext): Promi
       const newConfig = getConfig(folder.uri.fsPath, folder);
       let newTargets = newConfig.syncTargets;
       if (newTargets.length === 0) {
-        const repoInfo = await detectRepo(folder);
-        if (repoInfo) {
-          newTargets = defaultSyncTargets(repoInfo.owner, repoInfo.repo, folder.uri.fsPath);
+        const detected = await detectDefaultTargets(folder);
+        if (detected) {
+          newTargets = detected;
         }
       }
       await reconcileTargetChanges(old.targets, newTargets, old.stateManager);
@@ -164,43 +176,43 @@ async function doReinitializeAllFolders(context: vscode.ExtensionContext): Promi
   }
 }
 
-function getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
-  const editor = vscode.window.activeTextEditor;
-  if (editor) {
-    const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
-    if (folder) {
-      return folder;
+/**
+ * Resolves a PrimarySyncPlugin for a target by inspecting which registered
+ * plugin IDs have a config section in the target.
+ */
+function resolvePluginForTarget(target: SyncTarget): PrimarySyncPlugin | null {
+  // Check registered plugin IDs
+  for (const pluginId of getPrimaryPluginIds()) {
+    if (target[pluginId] !== undefined) {
+      const plugin = getPrimaryPlugin(pluginId);
+      if (plugin) {
+        return plugin;
+      }
     }
   }
-
-  const folders = vscode.workspace.workspaceFolders ?? [];
-  return folders[0];
+  return null;
 }
 
 async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.ExtensionContext): Promise<void> {
   const config = getConfig(folder.uri.fsPath, folder);
 
-  // Use explicitly configured targets; fall back to auto-detected repo with defaults
+  // Use explicitly configured targets; fall back to plugin-detected defaults
   let targets = config.syncTargets;
   if (targets.length === 0) {
-    const repoInfo = await detectRepo(folder);
-    if (!repoInfo) {
+    const detected = await detectDefaultTargets(folder);
+    if (!detected) {
       return;
     }
-    targets = defaultSyncTargets(repoInfo.owner, repoInfo.repo, folder.uri.fsPath);
+    targets = detected;
   }
 
-  await ensureGitignore(folder.uri.fsPath, [...targets.map((t) => t.location), config.syncStatePath]);
+  await ensureGitignore(folder.uri.fsPath, [...targets.map((t) => t.filesDir), config.syncStatePath]);
   await applyFilesExclude(folder, config);
 
   const stateManager = new SyncStateManager(config.syncStatePath);
   await stateManager.load();
   stateManager.watchForDeletion();
   context.subscriptions.push({ dispose: () => stateManager.dispose() });
-
-  // Track whether the projects plugin has been instantiated for this folder's first authenticated client.
-  // The module itself is only loaded (via dynamic import) when enable_experimental_projects is true.
-  let projectsPlugin: import('./projectsSync.js').ProjectsSyncPlugin | null = null;
 
   // Refresh file decorations and clear dirty state when sync confirms a match
   const unsubscribeDecorations = stateManager.onDidChange((filePath) => {
@@ -209,8 +221,8 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
   });
   context.subscriptions.push({ dispose: unsubscribeDecorations });
 
-  // Remove state entries for files no longer under any active target location (handles cross-session stale entries)
-  const activeLocations = new Set(targets.map((t) => t.location));
+  // Remove state entries for files no longer under any active target location
+  const activeLocations = new Set(targets.map((t) => t.filesDir));
   for (const filePath of stateManager.getKnownFilePaths()) {
     const isActive = [...activeLocations].some((loc) => filePath.startsWith(loc + path.sep));
     if (!isActive) {
@@ -218,24 +230,23 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
     }
   }
 
+  // Ensure plugins are initialized (authenticate once per activation)
+  if (getPrimaryPluginIds().length === 0) {
+    const initialized = await initializePlugins();
+    if (initialized.length === 0) {
+      console.warn('[issuesAsCode] No plugins could be initialized');
+      return;
+    }
+  }
+
   for (const target of targets) {
-    const repoInfo = repoInfoFromTarget(target);
-    if (!repoInfo) {
-      console.warn(`[issuesAsCode] Skipping target with unparseable repository_url: ${target.repository_url}`);
-      continue;
-    }
-    const client = await GitHubClient.authenticate(repoInfo.owner, repoInfo.repo);
-    if (!client) {
+    const plugin = resolvePluginForTarget(target);
+    if (!plugin) {
+      console.warn(`[issuesAsCode] No plugin found for target: ${JSON.stringify(target)}`);
       continue;
     }
 
-    // Instantiate the projects plugin for this client when experimental flag is on
-    if (config.enableExperimentalProjects && projectsPlugin === null) {
-      const { ProjectsSyncPlugin } = await import('./projectsSync.js');
-      projectsPlugin = new ProjectsSyncPlugin(client.octokit);
-    }
-
-    const manager = new SyncManager(client, config, target, folder, context, stateManager);
+    const manager = new SyncManager(plugin, config, target, folder, context, stateManager);
     await manager.start();
     syncManagers.push(manager);
     context.subscriptions.push({ dispose: () => manager.dispose() });
@@ -243,8 +254,19 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
 
   // Update decoration provider with all active managed locations and config
   if (decorationProvider) {
-    const locations = syncManagers.map((m) => ({ location: m.target.location, stateManager: m.stateManager }));
+    const locations = syncManagers.map((m) => ({ location: m.target.filesDir, stateManager: m.stateManager }));
     decorationProvider.update(locations, config.showSyncIcons);
+  }
+
+  // Update CodeLens provider with managed targets
+  if (codeLensProvider) {
+    const codeLensTargets = syncManagers.map((m) => ({
+      filesDir: m.target.filesDir,
+      pluginId: m.plugin.id,
+      displayName: m.plugin.displayName,
+      stateManager: m.stateManager,
+    }));
+    codeLensProvider.update(codeLensTargets);
   }
 }
 
@@ -260,11 +282,10 @@ export function deactivate(): void {
 async function applyFilesExclude(folder: vscode.WorkspaceFolder, config: import('./configManager').IssueConfig): Promise<void> {
   const relPath = path.relative(folder.uri.fsPath, config.syncStatePath);
   if (relPath.startsWith('..')) {
-    return; // Sync state file is outside workspace — skip
+    return;
   }
 
   const filesConfig = vscode.workspace.getConfiguration('files', folder.uri);
-  // Use inspect() to read only the folder-level value, not the merged global defaults
   const folderExclude = { ...(filesConfig.inspect<Record<string, boolean>>('exclude')?.workspaceFolderValue ?? {}) };
 
   if (config.showSyncState) {

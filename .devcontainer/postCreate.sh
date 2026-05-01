@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo ">>> Adjust workspace permissions..."
-chown -R node:node /workspaces
+sudo chown -R node:node /workspaces
 
 echo ">>> Installing dependencies..."
 npm install

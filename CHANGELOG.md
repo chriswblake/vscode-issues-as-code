@@ -2,22 +2,32 @@
 
 ## [pending]
 
+### Changed
+
+- **Plugin architecture refactor**: Sync logic is now decoupled from specific services via a plugin system. Each remote service (GitHub Issues, GitHub Projects, TickTick) is implemented as an isolated plugin under `src/plugins/`.
+- **New plugin types**: `PrimarySyncPlugin` (owns file body and creation — e.g. gh-issues) and `MetadataPlugin` (enriches frontmatter — e.g. gh-projects) replace the previous monolithic approach.
+- **SyncManager is now generic**: No longer contains GitHub-specific logic. Delegates pull/push operations to the configured plugin. Conflict markers say "Remote" instead of "GitHub".
+- **GitHubClient is repo-free**: Methods accept owner/repo as parameters, enabling cross-repository operations.
+- **configManager cleaned up**: Plugin-specific types and query builders moved into their respective plugin files. Generic `SyncTarget` interface uses an index signature for plugin configs.
+- **New file behavior**: New files created in sync target folders are no longer auto-pushed. A CodeLens "Publish" button appears instead, giving users explicit control.
+- **Cross-repo safety**: File lookup uses full `owner/repo/number` keys to prevent collisions when multiple repositories share issue numbers.
+
 ### Added
 
-- GitHub Projects v2 logic extracted into a standalone `projectsSync.ts` module (`ProjectsSyncPlugin` class). The module is only loaded at runtime when `enable_experimental_projects` is `true`.
-- Add `issuesAsCode.enable_experimental_projects` setting (default: `false`) to gate GitHub Projects v2 metadata sync. Requires reloading VS Code to take effect.
-- Add `issuesAsCode.showSyncState` setting to show or hide the sync state file in the VS Code Explorer
-- Add `issuesAsCode.showSyncIcons` setting with A / M / ✓ badges on issue files in the Explorer
-- Smart conflict resolution — simple remote-wins changes are auto-accepted; complex conflicts open a merge editor
-- Dedicated `sync-state.json` file to track sync metadata — removed from issue frontmatter
-- `issuesAsCode.syncStatePath` setting to configure the location of the sync state file
-- Rename issue files when the title changes on GitHub
-- Auto-reorganize issue files when `syncTargets` configuration is modified
-- Progress notifications for pull and push sync commands
-- Add command `Issues as Code: Add Open Issues Default Config` to quickly add a default sync target
-- Devcontainer configuration for Codespaces support
-- `repository_owner` and `name` fields replaced by `repository_url` in `syncTargets` entries
-- File names no longer require issue number.
+- **Command: "Issues as Code: Add setting - My issues on GitHub"** — Adds a cross-repo sync target for ALL issues assigned to the authenticated user across GitHub.
+- **Command: "Issues as Code: Add setting - My issues on this repository"** — Adds a sync target for the authenticated user's open issues on the detected workspace repository.
+- **Command: "Issues as Code: Publish to Remote"** — Explicitly publishes a local file to the configured remote service.
+- **CodeLens provider**: Shows a "▶ Publish to [service]" button on unpublished markdown files inside sync target folders.
+- **Plugin files**: `src/plugins/ghIssuesPlugin.ts`, `src/plugins/ghProjectsPlugin.ts`, `src/plugins/tickTickPlugin.ts`, `src/plugins/syncPlugin.ts`.
+
+### Removed
+
+- `src/projectsSync.ts` — Replaced by `src/plugins/ghProjectsPlugin.ts`.
+- `issueMatchesFilter` removed from `fileManager.ts` — Now lives in the gh-issues plugin as `matchesFilter`.
+- `inferNewIssueTitle` removed from `syncManager.ts` — Now handled by `GhIssuesPlugin.inferTitle`.
+- Dead `limit` config option removed from package.json schema.
+
+## [0.1.0] - 2026-04-22
 
 ## [0.1.0] - 2026-04-22
 

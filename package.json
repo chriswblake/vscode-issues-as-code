@@ -4,6 +4,7 @@
   "description": "Synchronize GitHub issues to a local .issues/ folder",
   "version": "0.1.0",
   "engines": {
+    "node": "^22.0.0",
     "vscode": "^1.85.0"
   },
   "categories": [
@@ -30,6 +31,18 @@
       {
         "command": "issuesAsCode.addOpenIssuesDefaultConfig",
         "title": "Issues as Code: Add Open Issues Default Config"
+      },
+      {
+        "command": "issuesAsCode.addMyIssuesOnGitHub",
+        "title": "Issues as Code: Add setting - My issues on GitHub"
+      },
+      {
+        "command": "issuesAsCode.addMyIssuesOnThisRepo",
+        "title": "Issues as Code: Add setting - My issues on this repository"
+      },
+      {
+        "command": "issuesAsCode.publishFile",
+        "title": "Issues as Code: Publish to Remote"
       }
     ],
     "configuration": {
@@ -50,27 +63,111 @@
         "issuesAsCode.syncTargets": {
           "type": "array",
           "default": [],
-          "description": "List of repositories and queries to sync. Each entry specifies the repository URL, query, and local folder for a set of issues. When empty, the extension falls back to auto-detecting the workspace repository.",
+          "description": "List of sync targets. Each entry defines a local folder and one or more plugin configurations (e.g. gh-issues). When empty, the extension falls back to auto-detecting the workspace repository.",
           "scope": "resource",
           "items": {
             "type": "object",
             "required": [
-              "repository_url",
-              "query",
-              "location"
+              "filesDir"
             ],
             "properties": {
-              "repository_url": {
+              "filesDir": {
                 "type": "string",
-                "description": "Full GitHub repository URL, e.g. 'https://github.com/my-org/my-repo'."
+                "description": "Local folder path where synced files are stored. Must be relative to the current workspace folder; absolute paths are not allowed."
               },
-              "query": {
+              "naming": {
                 "type": "string",
-                "description": "GitHub issue search query. Supports {today-Nd} tokens, e.g. 'is:issue state:open'."
+                "description": "Template for file names. Use tokens like {gh-issues.number} and {gh-issues.title}."
               },
-              "location": {
-                "type": "string",
-                "description": "Local folder path where matching issue files are stored. Use {workspaceDir} as a placeholder for the workspace root."
+              "gh-issues": {
+                "type": "object",
+                "description": "GitHub Issues plugin configuration.",
+                "properties": {
+                  "filters": {
+                    "type": "object",
+                    "description": "Filter criteria for GitHub Issues.",
+                    "properties": {
+                      "repository": {
+                        "type": "string",
+                        "description": "GitHub repository in 'owner/repo' format, e.g. 'my-org/my-repo'."
+                      },
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "open",
+                          "closed"
+                        ],
+                        "description": "Issue state filter."
+                      },
+                      "assignee": {
+                        "type": "string",
+                        "description": "Filter by assignee login."
+                      },
+                      "author": {
+                        "type": "string",
+                        "description": "Filter by author login."
+                      },
+                      "label": {
+                        "oneOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        ],
+                        "description": "Filter by one or more labels."
+                      },
+                      "created_at": {
+                        "type": "string",
+                        "description": "Filter by creation date, e.g. '>2025-01-01'. Supports {today-Nd} tokens."
+                      }
+                    }
+                  }
+                }
+              },
+              "gh-projects": {
+                "type": "object",
+                "description": "GitHub Projects v2 plugin configuration.",
+                "properties": {
+                  "filters": {
+                    "type": "object",
+                    "description": "Filter criteria for GitHub Projects.",
+                    "properties": {
+                      "projectId": {
+                        "type": "string",
+                        "description": "GitHub Project ID."
+                      },
+                      "state": {
+                        "type": "string",
+                        "description": "Item state filter."
+                      }
+                    }
+                  }
+                }
+              },
+              "tick-tick": {
+                "type": "object",
+                "description": "TickTick plugin configuration (future integration).",
+                "properties": {
+                  "filters": {
+                    "type": "object",
+                    "description": "Filter criteria for TickTick tasks.",
+                    "properties": {
+                      "list": {
+                        "type": "string",
+                        "description": "TickTick list name."
+                      },
+                      "state": {
+                        "type": "string",
+                        "description": "Task state filter."
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -83,8 +180,8 @@
         },
         "issuesAsCode.syncStatePath": {
           "type": "string",
-          "default": "{workspaceDir}/.issues/sync-state.json",
-          "description": "Path to the local sync state file that tracks the last-synced timestamp per issue. Defaults to .issues/sync-state.json in the workspace. Use {workspaceDir} as a placeholder for the workspace root. This file is machine-local and should be gitignored.",
+          "default": ".issues/sync-state.yml",
+          "description": "Path to the local sync state file that tracks the last-synced timestamp per issue. Must be relative to the current workspace folder; absolute paths are not allowed. This file is machine-local and should be gitignored.",
           "scope": "resource"
         },
         "issuesAsCode.showSyncState": {
@@ -130,18 +227,18 @@
     }
   },
   "dependencies": {
-    "@octokit/rest": "^20.0.0",
-    "gray-matter": "^4.0.3"
+    "@octokit/rest": "^20.1.2",
+    "gray-matter": "^4.0.3",
+    "js-yaml": "^4.1.1"
   },
   "devDependencies": {
-    "@types/glob": "^8.0.0",
+    "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.0",
-    "@types/node": "^20.0.0",
-    "@types/vscode": "^1.85.0",
-    "@vscode/test-electron": "^2.3.0",
-    "glob": "^8.0.0",
-    "mocha": "^10.2.0",
-    "typescript": "^5.3.0"
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.118.0",
+    "@vscode/test-electron": "^2.5.2",
+    "mocha": "^11.7.5",
+    "typescript": "^5.9.3"
   },
   "scripts": {
     "compile": "tsc -p ./",
