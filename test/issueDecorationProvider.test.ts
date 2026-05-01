@@ -93,7 +93,7 @@ suite('issueDecorationProvider – synchronized status', () => {
 
     // Write and immediately record sync state (local_written_at = now)
     fs.writeFileSync(issueFile, '# Synced issue\n', 'utf8');
-    await stateManager.setSyncedAt(issueFile, makeRemoteInfo());
+    await stateManager.setSyncedAt(issueFile, makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     // Set file mtime to before local_written_at so it looks unmodified
     const past = new Date(Date.now() - 10000);
@@ -119,7 +119,7 @@ suite('issueDecorationProvider – synchronized status', () => {
     const issueFile = path.join(dir, '1-synced-issue.md');
 
     fs.writeFileSync(issueFile, '# Synced issue\n', 'utf8');
-    await stateManager.setSyncedAt(issueFile, makeRemoteInfo());
+    await stateManager.setSyncedAt(issueFile, makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     const past = new Date(Date.now() - 10000);
     fs.utimesSync(issueFile, past, past);
@@ -150,7 +150,7 @@ suite('issueDecorationProvider – modified status', () => {
 
     // Set sync state first, then set mtime far in the future to simulate user edit
     fs.writeFileSync(issueFile, '# Issue\n', 'utf8');
-    await stateManager.setSyncedAt(issueFile, makeRemoteInfo());
+    await stateManager.setSyncedAt(issueFile, makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     const future = new Date(Date.now() + 60000);
     fs.utimesSync(issueFile, future, future);
@@ -175,7 +175,7 @@ suite('issueDecorationProvider – modified status', () => {
     const issueFile = path.join(dir, '1-modified-issue.md');
 
     fs.writeFileSync(issueFile, '# Issue\n', 'utf8');
-    await stateManager.setSyncedAt(issueFile, makeRemoteInfo());
+    await stateManager.setSyncedAt(issueFile, makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     const future = new Date(Date.now() + 60000);
     fs.utimesSync(issueFile, future, future);
@@ -258,7 +258,7 @@ suite('syncStateManager – local_written_at', () => {
     const before = Date.now();
 
     // Act
-    await manager.setSyncedAt('/issues/1.md', makeRemoteInfo());
+    await manager.setSyncedAt('/issues/1.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     // Assert
     const after = Date.now();
@@ -275,7 +275,7 @@ suite('syncStateManager – local_written_at', () => {
     await manager.load();
 
     // Act
-    await manager.setSyncedAt('/issues/1.md', makeRemoteInfo());
+    await manager.setSyncedAt('/issues/1.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     // Assert
     const raw = yaml.load(fs.readFileSync(statePath, 'utf8')) as { files: Record<string, Record<string, unknown>> };
@@ -297,7 +297,7 @@ suite('syncStateManager – onDidChange', () => {
     manager.onDidChange((fp) => changed.push(fp));
 
     // Act
-    await manager.setSyncedAt('/issues/1.md', makeRemoteInfo());
+    await manager.setSyncedAt('/issues/1.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     // Assert
     assert.deepStrictEqual(changed, ['/issues/1.md']);
@@ -308,7 +308,7 @@ suite('syncStateManager – onDidChange', () => {
     const statePath = path.join(makeTempDir(), 'sync-state.yml');
     const manager = new SyncStateManager(statePath);
     await manager.load();
-    await manager.setSyncedAt('/issues/1.md', makeRemoteInfo());
+    await manager.setSyncedAt('/issues/1.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
     const changed: string[] = [];
     manager.onDidChange((fp) => changed.push(fp));
 
@@ -329,7 +329,7 @@ suite('syncStateManager – onDidChange', () => {
 
     // Act
     unsubscribe();
-    await manager.setSyncedAt('/issues/1.md', makeRemoteInfo());
+    await manager.setSyncedAt('/issues/1.md', makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     // Assert
     assert.deepStrictEqual(changed, []);
@@ -349,7 +349,7 @@ suite('issueDecorationProvider – dirty tracking', () => {
     await stateManager.load();
     const issueFile = path.join(dir, '1-issue.md');
     fs.writeFileSync(issueFile, '# Issue\n', 'utf8');
-    await stateManager.setSyncedAt(issueFile, makeRemoteInfo());
+    await stateManager.setSyncedAt(issueFile, makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     // Set mtime to the past so mtime check would say synchronized
     const past = new Date(Date.now() - 10000);
@@ -375,7 +375,7 @@ suite('issueDecorationProvider – dirty tracking', () => {
     await stateManager.load();
     const issueFile = path.join(dir, '1-issue.md');
     fs.writeFileSync(issueFile, '# Issue\n', 'utf8');
-    await stateManager.setSyncedAt(issueFile, makeRemoteInfo());
+    await stateManager.setSyncedAt(issueFile, makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     const past = new Date(Date.now() - 10000);
     fs.utimesSync(issueFile, past, past);
@@ -403,7 +403,7 @@ suite('issueDecorationProvider – dirty tracking', () => {
     await stateManager.load();
     const issueFile = path.join(dir, '1-issue.md');
     fs.writeFileSync(issueFile, '# Issue\n', 'utf8');
-    await stateManager.setSyncedAt(issueFile, makeRemoteInfo());
+    await stateManager.setSyncedAt(issueFile, makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     const past = new Date(Date.now() - 10000);
     fs.utimesSync(issueFile, past, past);
@@ -444,7 +444,7 @@ suite('issueDecorationProvider – dirty tracking', () => {
     await stateManager.load();
     const issueFile = path.join(dir, '1-issue.md');
     fs.writeFileSync(issueFile, '# Issue\n', 'utf8');
-    await stateManager.setSyncedAt(issueFile, makeRemoteInfo());
+    await stateManager.setSyncedAt(issueFile, makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     const provider = new IssueDecorationProvider();
     provider.update([{ location: dir, stateManager }], { newIssue: true, modified: true, synchronized: true });
@@ -467,7 +467,7 @@ suite('issueDecorationProvider – dirty tracking', () => {
     await stateManager.load();
     const issueFile = path.join(dir, '1-issue.md');
     fs.writeFileSync(issueFile, '# Issue\n', 'utf8');
-    await stateManager.setSyncedAt(issueFile, makeRemoteInfo());
+    await stateManager.setSyncedAt(issueFile, makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     const past = new Date(Date.now() - 10000);
     fs.utimesSync(issueFile, past, past);

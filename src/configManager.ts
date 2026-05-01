@@ -4,7 +4,7 @@ import * as path from 'path';
 export interface SyncTarget {
   /** Absolute path to the folder where synced files for this target are stored. */
   filesDir: string;
-  /** Template for file names. Uses tokens like {gh-issues.number} and {gh-issues.title}. */
+  /** Template for file names. Uses plugin tokens like {pluginId.field}. */
   naming?: string;
   /** Plugin configurations keyed by plugin ID. */
   [pluginId: string]: unknown;
@@ -57,7 +57,6 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
 
   // When running in VS Code context, read from workspace configuration
   if (vscodeWorkspaceFolder !== undefined) {
-    // Dynamic import to avoid hard dependency on vscode in unit tests
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const vscode = require('vscode') as typeof import('vscode');
@@ -105,44 +104,6 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
 }
 
 /**
- * Builds default sync targets for a detected repo, mirroring the old default
- * syncFilters behaviour (open issues + issues closed in the last 10 days).
- */
-export function defaultSyncTargets(owner: string, repo: string, workspaceFolderPath: string): SyncTarget[] {
-  const issuesBase = path.join(workspaceFolderPath, '.issues');
-  const repository = `${owner}/${repo}`;
-  return [
-    {
-      filesDir: path.join(issuesBase, 'open'),
-      naming: '{gh-issues.number}-{gh-issues.title}',
-      'gh-issues': {
-        filters: { repository, state: 'open' },
-      },
-    },
-    {
-      filesDir: path.join(issuesBase, 'closed_10days'),
-      naming: '{gh-issues.number}-{gh-issues.title}',
-      'gh-issues': {
-        filters: { repository, state: 'closed', created_at: '>{today-10d}' },
-      },
-    },
-  ];
-}
-
-/**
- * Extracts owner/repo from a SyncTarget's gh-issues.filters.repository field.
- * Returns null if the field is missing or cannot be parsed.
- */
-export function repoInfoFromTarget(target: SyncTarget): RepoInfo | null {
-  const ghIssues = target['gh-issues'] as { filters?: { repository?: string } } | undefined;
-  const repository = ghIssues?.filters?.repository;
-  if (!repository) {
-    return null;
-  }
-  return parseOwnerRepo(repository);
-}
-
-/**
  * Parses an "owner/repo" string into a RepoInfo object.
  * Returns null if the string does not match the expected format.
  */
@@ -155,77 +116,18 @@ export function parseOwnerRepo(repository: string): RepoInfo | null {
 }
 
 /**
- * Detects GitHub repo from git remote using vscode.git extension API.
- */
-export async function detectRepo(workspaceFolder: { uri: { fsPath: string } }): Promise<RepoInfo | null> {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const vscode = require('vscode');
-    const gitExtension = vscode.extensions.getExtension('vscode.git')?.exports;
-    if (!gitExtension) {
-      return null;
-    }
-
-    const api = gitExtension.getAPI(1);
-    if (!api) {
-      return null;
-    }
-
-    const repo = api.repositories.find((r: { rootUri: { fsPath: string } }) => workspaceFolder.uri.fsPath.startsWith(r.rootUri.fsPath));
-    if (!repo) {
-      return null;
-    }
-
-    const remotes: Array<{ name: string; fetchUrl?: string; pushUrl?: string }> = repo.state.remotes ?? [];
-    if (remotes.length === 0) {
-      return null;
-    }
-
-    // Prefer "origin", fall back to first remote
-    const remote = remotes.find((r) => r.name === 'origin') ?? remotes[0];
-    const url = remote.fetchUrl ?? remote.pushUrl ?? '';
-
-    return parseGitHubUrl(url);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Parses a GitHub remote URL (HTTPS or SSH) and returns owner/repo.
- */
-export function parseGitHubUrl(url: string): RepoInfo | null {
-  // HTTPS: https://github.com/owner/repo.git
-  const httpsMatch = url.match(/https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (httpsMatch) {
-    return { owner: httpsMatch[1], repo: httpsMatch[2] };
-  }
-
-  // SSH: git@github.com:owner/repo.git
-  const sshMatch = url.match(/git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/);
-  if (sshMatch) {
-    return { owner: sshMatch[1], repo: sshMatch[2] };
-  }
-
-  return null;
-}
-
-/**
  * Ensures each issue-location directory (or its closest ancestor inside the
  * workspace) is present in the workspace `.gitignore`.
  */
 export async function ensureGitignore(workspaceRoot: string, locations: string[]): Promise<void> {
   const gitignorePath = path.join(workspaceRoot, '.gitignore');
 
-  // Build the set of gitignore entries — use the path relative to the workspace root.
-  // If the location is outside the workspace we skip it.
   const entries = new Set<string>();
   for (const loc of locations) {
     const rel = path.relative(workspaceRoot, loc);
     if (rel.startsWith('..')) {
       continue;
-    } // outside workspace
-    // Take the top-level segment so that e.g. ".issues/open" → ".issues/"
+    }
     const topLevel = rel.split(path.sep)[0];
     entries.add(topLevel + '/');
   }

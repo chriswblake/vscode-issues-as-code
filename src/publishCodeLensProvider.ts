@@ -1,5 +1,6 @@
 import * as path from 'path';
 import type * as vscodeType from 'vscode';
+import { getPrimaryPlugin } from './plugins/syncPlugin';
 
 // Lazy vscode import so unit tests can run without a VS Code instance
 function vscode(): typeof vscodeType {
@@ -10,6 +11,7 @@ function vscode(): typeof vscodeType {
 interface ManagedTarget {
   filesDir: string;
   pluginId: string;
+  displayName: string;
 }
 
 /**
@@ -61,43 +63,38 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
     const text = document.getText();
     if (!text.startsWith('---')) {
       // No frontmatter — show publish button at line 0
-      return [this.createPublishCodeLens(document, 0, matchingTarget.pluginId)];
+      return [this.createPublishCodeLens(document, 0, matchingTarget.displayName)];
     }
 
-    // Parse frontmatter to check for remote ID based on the plugin
+    // Use the registered plugin to check if the file is published
     try {
       const matter = require('gray-matter');
       const { data } = matter(text);
-      const pluginData = data[matchingTarget.pluginId];
-
-      // If plugin section exists and has a numeric ID field, it's already published
-      if (pluginData && typeof pluginData === 'object') {
-        // Check common ID fields: number (gh-issues), id (generic)
-        if (typeof pluginData.number === 'number' || typeof pluginData.id !== 'undefined') {
+      const plugin = getPrimaryPlugin(matchingTarget.pluginId);
+      if (plugin) {
+        const remoteId = plugin.getRemoteId(data);
+        if (remoteId !== undefined) {
           return [];
         }
       }
     } catch {
-      // If parsing fails, don't show CodeLens
       return [];
     }
 
     // File is unpublished — show CodeLens at the top
-    return [this.createPublishCodeLens(document, 0, matchingTarget.pluginId)];
+    return [this.createPublishCodeLens(document, 0, matchingTarget.displayName)];
   }
 
   private createPublishCodeLens(
     document: vscodeType.TextDocument, //
     line: number,
-    pluginId: string,
+    displayName: string,
   ): vscodeType.CodeLens {
     const vs = vscode();
     const range = new vs.Range(line, 0, line, 0);
 
-    const serviceLabel = pluginId === 'gh-issues' ? 'GitHub Issues' : pluginId;
-
     return new vs.CodeLens(range, {
-      title: `▶ Publish to ${serviceLabel}`,
+      title: `▶ Publish to ${displayName}`,
       command: 'issuesAsCode.publishFile',
       arguments: [document.uri],
     });

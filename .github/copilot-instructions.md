@@ -1,16 +1,18 @@
 ## Formatting and Commenting
 
-Always run formatting and linting before committing.
+When finished working run prettier.
 
 Put functions with several inputs on separate lines.
 Place a `//` after the first input to prevent prettier from collapsing to one line.
 
 Comments are used to identify logical chunks for quick navigation. They do not explain the code.
+
 Use descriptive variable and function names. Avoid abbreviations unless they are widely understood.
 
 When finishing a task, ensure formatting is consistent, organized, and readable by someone new to the project. Refactor to improve readability and maintainability.
 
 Organize methods in a file into groups to make them easy to find.
+
 
 ## Architecture
 

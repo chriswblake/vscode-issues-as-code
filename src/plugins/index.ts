@@ -4,6 +4,15 @@ export { GhProjectsPlugin } from './ghProjectsPlugin';
 export type { ProjectFieldData } from './ghProjectsPlugin';
 export { TickTickPlugin } from './tickTickPlugin';
 export {
+  detectRepo,
+  defaultSyncTargets,
+  createGhIssuesPlugin,
+  getAuthenticatedUsername,
+  registerGhIssuesCommands,
+  hasDuplicateGhIssuesTarget,
+  parseGitHubUrl,
+} from './ghIssuesBootstrap';
+export {
   registerPrimaryPlugin,
   registerMetadataPlugin,
   getPrimaryPlugin,

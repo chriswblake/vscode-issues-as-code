@@ -55,6 +55,9 @@ export interface PrimarySyncPlugin {
   /** Plugin identifier matching the config key (e.g. 'gh-issues'). */
   readonly id: string;
 
+  /** Human-readable display name (e.g. 'GitHub Issues'). */
+  readonly displayName: string;
+
   /**
    * Discovers and fetches remote items matching the target's plugin config.
    * Returns one PullItem per remote task/issue.
@@ -83,6 +86,23 @@ export interface PrimarySyncPlugin {
    * Used to determine if a file is "new" (unpublished) or existing.
    */
   getRemoteId(frontmatter: IssueFrontmatter): number | string | undefined;
+
+  /**
+   * Returns the unique remote key for a file's frontmatter (e.g. "owner/repo/42").
+   * Used for conflict detection and state lookups during push.
+   */
+  getRemoteKey(frontmatter: IssueFrontmatter, pluginConfig: Record<string, unknown>): string | undefined;
+
+  /**
+   * Finds an existing local file matching a remote item by name/frontmatter heuristic.
+   * Called as a fallback when the sync state doesn't track the file yet.
+   * Returns the full file path or null.
+   */
+  findExistingFile(
+    filesDir: string, //
+    remoteKey: string,
+    naming: string,
+  ): Promise<string | null>;
 
   /**
    * Infers a title for a new file that has no explicit title in frontmatter.
@@ -117,6 +137,40 @@ export interface MetadataPlugin {
 // ---------------------------------------------------------------------------
 // Plugin registry
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Plugin Bootstrap — generic interface for plugin initialization
+// ---------------------------------------------------------------------------
+
+/**
+ * Each plugin package exports a bootstrap that handles initialization,
+ * command registration, and default target generation.
+ */
+export interface PluginBootstrap {
+  /** Plugin identifier (must match PrimarySyncPlugin.id). */
+  readonly pluginId: string;
+
+  /**
+   * Initialize the plugin (e.g. authenticate) and register it in the registry.
+   * Returns true if the plugin was successfully initialized.
+   */
+  initialize(): Promise<boolean>;
+
+  /**
+   * Register plugin-specific VS Code commands.
+   * Called once during activation.
+   */
+  registerCommands(
+    context: { subscriptions: { dispose(): void }[] },
+    reinitialize: () => Promise<void>,
+  ): void;
+
+  /**
+   * Attempt to detect default sync targets for a workspace folder.
+   * Returns null if this plugin cannot provide defaults for the folder.
+   */
+  detectDefaults(workspaceFolder: { uri: { fsPath: string } }): Promise<import('../configManager').SyncTarget[] | null>;
+}
 
 // ---------------------------------------------------------------------------
 // Plugin Registry — lookup plugins by ID for multi-plugin scenarios

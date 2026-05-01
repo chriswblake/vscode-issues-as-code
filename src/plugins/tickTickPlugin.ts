@@ -11,6 +11,7 @@ import type { PrimarySyncPlugin, PullItem, PushResult, PluginContext } from './s
  */
 export class TickTickPlugin implements PrimarySyncPlugin {
   readonly id = 'tick-tick';
+  readonly displayName = 'TickTick';
 
   async pull(_pluginConfig: Record<string, unknown>, _context: PluginContext): Promise<PullItem[]> {
     console.warn('[issuesAsCode] TickTick plugin is not yet implemented.');
@@ -32,6 +33,14 @@ export class TickTickPlugin implements PrimarySyncPlugin {
 
   getRemoteId(_frontmatter: IssueFrontmatter): undefined {
     return undefined;
+  }
+
+  getRemoteKey(_frontmatter: IssueFrontmatter, _pluginConfig: Record<string, unknown>): undefined {
+    return undefined;
+  }
+
+  async findExistingFile(_filesDir: string, _remoteKey: string, _naming: string): Promise<string | null> {
+    return null;
   }
 
   inferTitle(filePath: string, _frontmatter: IssueFrontmatter, _body: string): string {

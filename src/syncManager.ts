@@ -4,7 +4,6 @@ import type * as vscodeType from 'vscode';
 import {
   readIssueFile, //
   writeIssueFile,
-  findFileByIssueNumberInFrontmatter,
   serializeIssueFile,
   type IssueFrontmatter,
 } from './fileManager';
@@ -139,12 +138,9 @@ export class SyncManager {
       // Look for existing file tracking this remote item (by unique remoteKey)
       let existingPath = this.findExistingFileByKey(item.remoteKey);
 
-      // Fallback: filename-based heuristic for files not yet in sync state
+      // Fallback: plugin-specific heuristic for files not yet in sync state
       if (!existingPath) {
-        // Extract repository from remoteKey (format: "owner/repo/number")
-        const keyParts = item.remoteKey.split('/');
-        const repository = keyParts.length >= 3 ? `${keyParts[0]}/${keyParts[1]}` : undefined;
-        existingPath = await this.findExistingFileByName(item.remoteInfo.number, naming, repository);
+        existingPath = await this.plugin.findExistingFile(this.target.filesDir, item.remoteKey, naming);
       }
 
       if (existingPath !== null && existingPath !== expectedPath) {
@@ -160,52 +156,6 @@ export class SyncManager {
   /** Finds an existing file by its remoteKey in the sync state (unique across repos). */
   private findExistingFileByKey(remoteKey: string): string | null {
     return this.stateManager.findFileByPluginKey(this.plugin.id, remoteKey) ?? null;
-  }
-
-  /** Filename-based heuristic fallback for files not yet tracked in sync state. */
-  private async findExistingFileByName(remoteId: number, naming: string, repository?: string): Promise<string | null> {
-    let files: string[];
-    try {
-      files = await fs.promises.readdir(this.target.filesDir);
-    } catch {
-      return null;
-    }
-
-    for (const file of files) {
-      if (!file.endsWith('.md')) {
-        continue;
-      }
-      const base = file.slice(0, -3);
-      const tokens: Record<string, string | number> = {
-        'gh-issues.number': remoteId,
-        'gh-issues.title': base,
-      };
-      const expectedStart = this.plugin.buildFileName(
-        { ...tokens, 'gh-issues.title': '' }, //
-        naming,
-      );
-      if (base.startsWith(expectedStart.replace(/-$/, ''))) {
-        const candidate = path.join(this.target.filesDir, file);
-
-        // Verify frontmatter matches to prevent prefix collisions (e.g. 42 vs 420)
-        try {
-          const { frontmatter } = await readIssueFile(candidate);
-          if (frontmatter['gh-issues']?.number !== remoteId) {
-            continue;
-          }
-          if (repository && frontmatter['gh-issues']?.repository !== repository) {
-            continue;
-          }
-        } catch {
-          continue;
-        }
-
-        return candidate;
-      }
-    }
-
-    // Fallback: scan frontmatter for the remote ID and repository
-    return await findFileByIssueNumberInFrontmatter(this.target.filesDir, remoteId, repository);
   }
 
   /** Pull a single item: auto-accept one-directional changes, write conflict markers for mixed. */
@@ -233,7 +183,7 @@ export class SyncManager {
     const kind = classifyDiff(localContent, cloudContent);
 
     if (kind === 'identical') {
-      await this.stateManager.setSyncedAt(localPath, item.remoteInfo);
+      await this.stateManager.setSyncedAt(localPath, item.remoteInfo, this.plugin.id, item.remoteKey);
       return;
     }
 
@@ -248,7 +198,7 @@ export class SyncManager {
     }
 
     // Mixed: write conflict markers
-    await this.writeConflictMarkers(localPath, localContent, cloudContent, item.remoteInfo);
+    await this.writeConflictMarkers(localPath, localContent, cloudContent, item.remoteInfo, item.remoteKey);
   }
 
   /** Push a single file to the remote service via the plugin. */
@@ -272,14 +222,11 @@ export class SyncManager {
 
     if (remoteId !== undefined) {
       // Existing item — check for conflicts before pushing
-      // Build the full remote key from frontmatter for unique identification
-      const ghIssues = frontmatter['gh-issues'];
-      const repository = ghIssues?.repository ?? '';
-      const remoteKey = repository ? `${repository}/${remoteId}` : String(remoteId);
+      const remoteKey = this.plugin.getRemoteKey(frontmatter, pluginConfig);
 
       // Re-pull to get latest remote state for conflict check
       const items = await this.plugin.pull(pluginConfig, context);
-      const cloudItem = items.find((i) => i.remoteKey === remoteKey);
+      const cloudItem = remoteKey ? items.find((i) => i.remoteKey === remoteKey) : undefined;
 
       if (cloudItem && isConflict(cloudItem.remoteInfo.updated_at, this.stateManager.getSyncedAt(filePath))) {
         await this.handlePullConflict(filePath, cloudItem);
@@ -309,7 +256,10 @@ export class SyncManager {
       [this.plugin.id]: result.frontmatter,
     };
 
-    await this.writeFileSuppressed(expectedPath, updatedFrontmatter, result.body, result.remoteInfo);
+    // Derive remoteKey from the updated frontmatter
+    const pushRemoteKey = this.plugin.getRemoteKey(updatedFrontmatter, pluginConfig) ?? '';
+
+    await this.writeFileSuppressed(expectedPath, updatedFrontmatter, result.body, result.remoteInfo, pushRemoteKey);
 
     if (expectedPath !== filePath) {
       await this.unlinkSuppressed(filePath);
@@ -365,7 +315,7 @@ export class SyncManager {
       return;
     }
 
-    await this.writeConflictMarkers(localPath, localContent, cloudContent, cloudItem.remoteInfo);
+    await this.writeConflictMarkers(localPath, localContent, cloudContent, cloudItem.remoteInfo, cloudItem.remoteKey);
   }
 
   /** Writes merge conflict markers into localPath and advances the sync timestamp. */
@@ -374,13 +324,14 @@ export class SyncManager {
     localContent: string,
     cloudContent: string,
     remoteInfo: RemoteIssueInfo,
+    remoteKey: string,
   ): Promise<void> {
     const conflictContent = generateConflictContent(localContent, cloudContent);
     this.suppress(localPath, 1);
     try {
       await fs.promises.writeFile(localPath, conflictContent, 'utf8');
       await this.markExtensionWrite(localPath);
-      await this.stateManager.setSyncedAt(localPath, remoteInfo);
+      await this.stateManager.setSyncedAt(localPath, remoteInfo, this.plugin.id, remoteKey);
     } finally {
       this.suppress(localPath, -1);
     }
@@ -459,7 +410,7 @@ export class SyncManager {
     const frontmatter: IssueFrontmatter = {
       [this.plugin.id]: item.frontmatter,
     };
-    await this.writeFileSuppressed(filePath, frontmatter, item.body, item.remoteInfo);
+    await this.writeFileSuppressed(filePath, frontmatter, item.body, item.remoteInfo, item.remoteKey);
   }
 
   /** Writes a file while suppressing watcher events and updating sync state. */
@@ -468,12 +419,13 @@ export class SyncManager {
     frontmatter: IssueFrontmatter,
     body: string,
     remoteInfo: RemoteIssueInfo,
+    remoteKey: string,
   ): Promise<void> {
     this.suppress(filePath, 1);
     try {
       await writeIssueFile(filePath, frontmatter, body);
       await this.markExtensionWrite(filePath);
-      await this.stateManager.setSyncedAt(filePath, remoteInfo);
+      await this.stateManager.setSyncedAt(filePath, remoteInfo, this.plugin.id, remoteKey);
     } finally {
       this.suppress(filePath, -1);
     }

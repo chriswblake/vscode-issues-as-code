@@ -3,7 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { resolveQueryDateTokens as resolveQuery, buildSearchQuery as buildGhIssuesQuery } from '../src/plugins/ghIssuesPlugin';
-import { getConfig, defaultSyncTargets, repoInfoFromTarget, parseOwnerRepo, ensureGitignore, resolveWorkspacePath } from '../src/configManager';
+import { getConfig, parseOwnerRepo, ensureGitignore, resolveWorkspacePath } from '../src/configManager';
+import { defaultSyncTargets } from '../src/plugins/ghIssuesBootstrap';
 
 // ---------------------------------------------------------------------------
 // Section 1: resolveQuery – basic {today-Nd} substitution
@@ -227,36 +228,7 @@ suite('configManager – defaultSyncTargets', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Section 5b: repoInfoFromTarget
-// ---------------------------------------------------------------------------
-suite('configManager – repoInfoFromTarget', () => {
-  test('parses owner/repo from gh-issues.filters.repository', () => {
-    const target = { filesDir: '/issues', 'gh-issues': { filters: { repository: 'my-org/my-repo' } } };
-    const info = repoInfoFromTarget(target);
-    assert.ok(info);
-    assert.strictEqual(info!.owner, 'my-org');
-    assert.strictEqual(info!.repo, 'my-repo');
-  });
-
-  test('returns null when gh-issues is not configured', () => {
-    const target = { filesDir: '/issues' };
-    const info = repoInfoFromTarget(target);
-    assert.strictEqual(info, null);
-  });
-
-  test('returns null for a repository string without a slash', () => {
-    const target = { filesDir: '/issues', 'gh-issues': { filters: { repository: 'not-a-valid-repo' } } };
-    const info = repoInfoFromTarget(target);
-    assert.strictEqual(info, null);
-  });
-
-  test('returns null for an empty repository string', () => {
-    const target = { filesDir: '/issues', 'gh-issues': { filters: { repository: '' } } };
-    const info = repoInfoFromTarget(target);
-    assert.strictEqual(info, null);
-  });
-});
+// (repoInfoFromTarget tests removed — function moved to plugin-specific code)
 
 // ---------------------------------------------------------------------------
 // Section 5c: parseOwnerRepo

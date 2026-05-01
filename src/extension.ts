@@ -1,13 +1,12 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { detectRepo, getConfig, ensureGitignore, defaultSyncTargets, repoInfoFromTarget, type SyncTarget } from './configManager';
-import { GitHubClient } from './githubClient';
+import { getConfig, ensureGitignore, type SyncTarget } from './configManager';
 import { SyncManager, reconcileTargetChanges } from './syncManager';
 import { SyncStateManager } from './syncStateManager';
 import { IssueDecorationProvider } from './issueDecorationProvider';
 import { PublishCodeLensProvider } from './publishCodeLensProvider';
-import { GhIssuesPlugin } from './plugins/ghIssuesPlugin';
-import { registerPrimaryPlugin, type PrimarySyncPlugin } from './plugins/syncPlugin';
+import { initializePlugins, registerPluginCommands, detectDefaultTargets } from './plugins/loader';
+import { getPrimaryPlugin, getPrimaryPluginIds, type PrimarySyncPlugin } from './plugins/syncPlugin';
 
 const syncManagers: SyncManager[] = [];
 let decorationProvider: IssueDecorationProvider | undefined;
@@ -107,90 +106,6 @@ function registerCommands(context: vscode.ExtensionContext): void {
         void vscode.window.showErrorMessage(`Failed to publish file: ${err instanceof Error ? err.message : String(err)}`);
       }
     }),
-    vscode.commands.registerCommand('issuesAsCode.addOpenIssuesDefaultConfig', async () => {
-      const { folder, repoInfo } = await requireWorkspaceRepo();
-      if (!folder || !repoInfo) {
-        return;
-      }
-
-      const repository = `${repoInfo.owner}/${repoInfo.repo}`;
-      const target: SyncTarget = {
-        filesDir: '.issues/open',
-        naming: '{gh-issues.number}-{gh-issues.title}',
-        'gh-issues': { filters: { repository, state: 'open' } },
-      };
-
-      const isDuplicate = await hasDuplicateTarget(folder, (ghFilters) =>
-        ghFilters?.repository === repository && ghFilters?.state === 'open',
-      );
-      if (isDuplicate) {
-        void vscode.window.showInformationMessage(`Open issues sync target already exists for ${repository}.`);
-        return;
-      }
-
-      await appendSyncTarget(folder, target, context);
-      void vscode.window.showInformationMessage(`Added default open issues sync target for ${repository}.`);
-    }),
-    vscode.commands.registerCommand('issuesAsCode.addMyIssuesOnGitHub', async () => {
-      const folder = getActiveWorkspaceFolder();
-      if (!folder) {
-        void vscode.window.showErrorMessage('No workspace folder is open.');
-        return;
-      }
-
-      const username = await getAuthenticatedUsername();
-      if (!username) {
-        void vscode.window.showErrorMessage('Could not authenticate with GitHub. Please sign in.');
-        return;
-      }
-
-      const target: SyncTarget = {
-        filesDir: '.issues/my-issues',
-        naming: '{gh-issues.number}-{gh-issues.title}',
-        'gh-issues': { filters: { assignee: username } },
-      };
-
-      const isDuplicate = await hasDuplicateTarget(folder, (ghFilters) =>
-        ghFilters?.assignee === username && !ghFilters?.state,
-      );
-      if (isDuplicate) {
-        void vscode.window.showInformationMessage(`"My issues on GitHub" sync target already exists for ${username}.`);
-        return;
-      }
-
-      await appendSyncTarget(folder, target, context);
-      void vscode.window.showInformationMessage(`Added "My issues on GitHub" sync target for ${username}.`);
-    }),
-    vscode.commands.registerCommand('issuesAsCode.addMyIssuesOnThisRepo', async () => {
-      const { folder, repoInfo } = await requireWorkspaceRepo();
-      if (!folder || !repoInfo) {
-        return;
-      }
-
-      const username = await getAuthenticatedUsername();
-      if (!username) {
-        void vscode.window.showErrorMessage('Could not authenticate with GitHub. Please sign in.');
-        return;
-      }
-
-      const repository = `${repoInfo.owner}/${repoInfo.repo}`;
-      const target: SyncTarget = {
-        filesDir: `.issues/${repoInfo.repo}-my-issues`,
-        naming: '{gh-issues.number}-{gh-issues.title}',
-        'gh-issues': { filters: { repository, assignee: username, state: 'open' } },
-      };
-
-      const isDuplicate = await hasDuplicateTarget(folder, (ghFilters) =>
-        ghFilters?.repository === repository && ghFilters?.assignee === username,
-      );
-      if (isDuplicate) {
-        void vscode.window.showInformationMessage(`"My issues on this repository" sync target already exists for ${username} on ${repository}.`);
-        return;
-      }
-
-      await appendSyncTarget(folder, target, context);
-      void vscode.window.showInformationMessage(`Added "My issues on this repository" sync target for ${username} on ${repository}.`);
-    }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('issuesAsCode')) {
         if (configChangeDebounceTimer) {
@@ -203,51 +118,14 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
     }),
   );
+
+  // Plugin-specific commands
+  registerPluginCommands(context, () => reinitializeAllFolders(context));
 }
 
 // ---------------------------------------------------------------------------
-// Command helpers
+// Initialization
 // ---------------------------------------------------------------------------
-
-/** Resolves workspace folder + repo info, showing errors if either is missing. */
-async function requireWorkspaceRepo(): Promise<{ folder?: vscode.WorkspaceFolder; repoInfo?: { owner: string; repo: string } }> {
-  const folder = getActiveWorkspaceFolder();
-  if (!folder) {
-    void vscode.window.showErrorMessage('No workspace folder is open.');
-    return {};
-  }
-  const repoInfo = await detectRepo(folder);
-  if (!repoInfo) {
-    void vscode.window.showErrorMessage('Could not detect a GitHub repository from this workspace folder.');
-    return { folder };
-  }
-  return { folder, repoInfo };
-}
-
-/** Checks if a target with matching gh-issues filters already exists. */
-async function hasDuplicateTarget(
-  folder: vscode.WorkspaceFolder, //
-  predicate: (filters: Record<string, unknown> | undefined) => boolean,
-): Promise<boolean> {
-  const cfg = vscode.workspace.getConfiguration('issuesAsCode', folder.uri);
-  const currentTargets = cfg.get<SyncTarget[]>('syncTargets') ?? [];
-  return currentTargets.some((t) => {
-    const ghIssues = t['gh-issues'] as { filters?: Record<string, unknown> } | undefined;
-    return predicate(ghIssues?.filters);
-  });
-}
-
-/** Appends a sync target to the workspace config and reinitializes. */
-async function appendSyncTarget(
-  folder: vscode.WorkspaceFolder, //
-  target: SyncTarget,
-  context: vscode.ExtensionContext,
-): Promise<void> {
-  const cfg = vscode.workspace.getConfiguration('issuesAsCode', folder.uri);
-  const currentTargets = cfg.get<SyncTarget[]>('syncTargets') ?? [];
-  await cfg.update('syncTargets', [...currentTargets, target], vscode.ConfigurationTarget.WorkspaceFolder);
-  await reinitializeAllFolders(context);
-}
 
 async function reinitializeAllFolders(context: vscode.ExtensionContext): Promise<void> {
   reinitializeChain = reinitializeChain
@@ -280,9 +158,9 @@ async function doReinitializeAllFolders(context: vscode.ExtensionContext): Promi
       const newConfig = getConfig(folder.uri.fsPath, folder);
       let newTargets = newConfig.syncTargets;
       if (newTargets.length === 0) {
-        const repoInfo = await detectRepo(folder);
-        if (repoInfo) {
-          newTargets = defaultSyncTargets(repoInfo.owner, repoInfo.repo, folder.uri.fsPath);
+        const detected = await detectDefaultTargets(folder);
+        if (detected) {
+          newTargets = detected;
         }
       }
       await reconcileTargetChanges(old.targets, newTargets, old.stateManager);
@@ -292,44 +170,34 @@ async function doReinitializeAllFolders(context: vscode.ExtensionContext): Promi
   }
 }
 
-function getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
-  const editor = vscode.window.activeTextEditor;
-  if (editor) {
-    const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
-    if (folder) {
-      return folder;
+/**
+ * Resolves a PrimarySyncPlugin for a target by inspecting which registered
+ * plugin IDs have a config section in the target.
+ */
+function resolvePluginForTarget(target: SyncTarget): PrimarySyncPlugin | null {
+  // Check registered plugin IDs
+  for (const pluginId of getPrimaryPluginIds()) {
+    if (target[pluginId] !== undefined) {
+      const plugin = getPrimaryPlugin(pluginId);
+      if (plugin) {
+        return plugin;
+      }
     }
   }
-
-  const folders = vscode.workspace.workspaceFolders ?? [];
-  return folders[0];
-}
-
-/** Gets the authenticated GitHub username via VS Code's auth provider. */
-async function getAuthenticatedUsername(): Promise<string | null> {
-  try {
-    const session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
-    if (!session) {
-      return null;
-    }
-    // The session.account.label is the GitHub username
-    return session.account.label;
-  } catch {
-    return null;
-  }
+  return null;
 }
 
 async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.ExtensionContext): Promise<void> {
   const config = getConfig(folder.uri.fsPath, folder);
 
-  // Use explicitly configured targets; fall back to auto-detected repo with defaults
+  // Use explicitly configured targets; fall back to plugin-detected defaults
   let targets = config.syncTargets;
   if (targets.length === 0) {
-    const repoInfo = await detectRepo(folder);
-    if (!repoInfo) {
+    const detected = await detectDefaultTargets(folder);
+    if (!detected) {
       return;
     }
-    targets = defaultSyncTargets(repoInfo.owner, repoInfo.repo, folder.uri.fsPath);
+    targets = detected;
   }
 
   await ensureGitignore(folder.uri.fsPath, [...targets.map((t) => t.filesDir), config.syncStatePath]);
@@ -356,24 +224,21 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
     }
   }
 
-  // Authenticate once — GitHubClient is no longer repo-scoped
-  const client = await GitHubClient.authenticate();
-  if (!client) {
-    console.warn('[issuesAsCode] Failed to authenticate with GitHub');
-    return;
+  // Ensure plugins are initialized (authenticate once per activation)
+  if (getPrimaryPluginIds().length === 0) {
+    const initialized = await initializePlugins();
+    if (initialized.length === 0) {
+      console.warn('[issuesAsCode] No plugins could be initialized');
+      return;
+    }
   }
 
   for (const target of targets) {
-    // Validate the target has a gh-issues section (repository is optional for cross-repo)
-    const ghIssues = target['gh-issues'] as Record<string, unknown> | undefined;
-    if (!ghIssues) {
-      console.warn(`[issuesAsCode] Skipping target without a plugin config: ${JSON.stringify(target)}`);
+    const plugin = resolvePluginForTarget(target);
+    if (!plugin) {
+      console.warn(`[issuesAsCode] No plugin found for target: ${JSON.stringify(target)}`);
       continue;
     }
-
-    // Create the appropriate plugin instance and register it
-    const plugin: PrimarySyncPlugin = new GhIssuesPlugin(client);
-    registerPrimaryPlugin(plugin);
 
     const manager = new SyncManager(plugin, config, target, folder, context, stateManager);
     await manager.start();
@@ -392,6 +257,7 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
     const codeLensTargets = syncManagers.map((m) => ({
       filesDir: m.target.filesDir,
       pluginId: m.plugin.id,
+      displayName: m.plugin.displayName,
     }));
     codeLensProvider.update(codeLensTargets);
   }
@@ -409,11 +275,10 @@ export function deactivate(): void {
 async function applyFilesExclude(folder: vscode.WorkspaceFolder, config: import('./configManager').IssueConfig): Promise<void> {
   const relPath = path.relative(folder.uri.fsPath, config.syncStatePath);
   if (relPath.startsWith('..')) {
-    return; // Sync state file is outside workspace — skip
+    return;
   }
 
   const filesConfig = vscode.workspace.getConfiguration('files', folder.uri);
-  // Use inspect() to read only the folder-level value, not the merged global defaults
   const folderExclude = { ...(filesConfig.inspect<Record<string, boolean>>('exclude')?.workspaceFolderValue ?? {}) };
 
   if (config.showSyncState) {

@@ -2,63 +2,40 @@ import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { issueToFileName, issueNumberFromFileName, findFileByNumber, findFileByIssueNumberInFrontmatter, serializeIssueFile, readIssueFile, writeIssueFile, type IssueFrontmatter } from '../src/fileManager';
-import { matchesFilter, type GhIssuesFilters } from '../src/plugins/ghIssuesPlugin';
-import type { IssueData } from '../src/githubClient';
+import { serializeIssueFile, readIssueFile, writeIssueFile, type IssueFrontmatter } from '../src/fileManager';
+import { matchesFilter, buildFileName, type GhIssuesFilters } from '../src/plugins/ghIssuesPlugin';
 
 // ---------------------------------------------------------------------------
-// Section 1: issueToFileName
+// Section 1: buildFileName
 // ---------------------------------------------------------------------------
-suite('fileManager – issueToFileName', () => {
-  function makeIssue(number: number, title: string): IssueData {
-    return {
-      number,
-      title,
-      state: 'open',
-      body: null,
-      labels: [],
-      assignees: [],
-      updated_at: new Date().toISOString(),
-      closed_at: null,
-      node_id: 'node1',
-      html_url: '',
-    };
+suite('ghIssuesPlugin – buildFileName', () => {
+  function makeTokens(number: number, title: string): Record<string, string | number> {
+    return { 'gh-issues.number': number, 'gh-issues.title': title };
   }
 
-  test('produces expected filename from new-style token template', () => {
-    const issue = makeIssue(42, 'Fix the bug');
-    const result = issueToFileName(issue, '{gh-issues.number}-{gh-issues.title}');
-    assert.strictEqual(result, '42-fix-the-bug');
-  });
-
-  test('produces expected filename from legacy token template', () => {
-    const issue = makeIssue(42, 'Fix the bug');
-    const result = issueToFileName(issue, '{issue-num}-{issue-title}');
+  test('produces expected filename from token template', () => {
+    const result = buildFileName(makeTokens(42, 'Fix the bug'), '{gh-issues.number}-{gh-issues.title}');
     assert.strictEqual(result, '42-fix-the-bug');
   });
 
   test('strips characters invalid in filenames', () => {
-    const issue = makeIssue(1, 'Hello: world / test');
-    const result = issueToFileName(issue, '{gh-issues.number}-{gh-issues.title}');
+    const result = buildFileName(makeTokens(1, 'Hello: world / test'), '{gh-issues.number}-{gh-issues.title}');
     assert.ok(!result.includes('/'), 'should not contain /');
     assert.ok(!result.includes(':'), 'should not contain :');
   });
 
   test('collapses consecutive dashes', () => {
-    const issue = makeIssue(3, 'A   B   C');
-    const result = issueToFileName(issue, '{gh-issues.number}-{gh-issues.title}');
+    const result = buildFileName(makeTokens(3, 'A   B   C'), '{gh-issues.number}-{gh-issues.title}');
     assert.ok(!result.includes('--'), 'should not have consecutive dashes');
   });
 
   test('lowercases title slug', () => {
-    const issue = makeIssue(7, 'UPPER CASE TITLE');
-    const result = issueToFileName(issue, '{gh-issues.number}-{gh-issues.title}');
+    const result = buildFileName(makeTokens(7, 'UPPER CASE TITLE'), '{gh-issues.number}-{gh-issues.title}');
     assert.strictEqual(result, '7-upper-case-title');
   });
 
   test('handles custom template with number only', () => {
-    const issue = makeIssue(99, 'my task');
-    const result = issueToFileName(issue, 'issue-{gh-issues.number}');
+    const result = buildFileName(makeTokens(99, 'my task'), 'issue-{gh-issues.number}');
     assert.strictEqual(result, 'issue-99');
   });
 });
@@ -178,11 +155,12 @@ suite('fileManager – serialize/read round-trip', () => {
     await writeIssueFile(filePath, fm, body);
     const { frontmatter: read, body: readBody } = await readIssueFile(filePath);
 
-    assert.strictEqual(read['gh-issues']?.number, 5);
-    assert.strictEqual(read['gh-issues']?.title, 'My task');
-    assert.strictEqual(read['gh-issues']?.state, 'open');
-    assert.deepStrictEqual(read['gh-issues']?.labels, ['bug', 'help wanted']);
-    assert.deepStrictEqual(read['gh-issues']?.assignees, ['octocat']);
+    const ghIssues = read['gh-issues'] as Record<string, unknown>;
+    assert.strictEqual(ghIssues.number, 5);
+    assert.strictEqual(ghIssues.title, 'My task');
+    assert.strictEqual(ghIssues.state, 'open');
+    assert.deepStrictEqual(ghIssues.labels, ['bug', 'help wanted']);
+    assert.deepStrictEqual(ghIssues.assignees, ['octocat']);
     assert.ok(readBody.includes('Issue body goes here.'));
   });
 
@@ -192,10 +170,9 @@ suite('fileManager – serialize/read round-trip', () => {
     await fs.promises.writeFile(filePath, content, 'utf8');
 
     const { frontmatter, body } = await readIssueFile(filePath);
-    assert.strictEqual(frontmatter['gh-issues']?.title, 'Minimal');
-    assert.strictEqual(frontmatter['gh-issues']?.state, 'open');
-    assert.deepStrictEqual(frontmatter['gh-issues']?.labels, []);
-    assert.deepStrictEqual(frontmatter['gh-issues']?.assignees, []);
+    const ghIssues = frontmatter['gh-issues'] as Record<string, unknown>;
+    assert.strictEqual(ghIssues.title, 'Minimal');
+    assert.strictEqual(ghIssues.state, 'open');
     assert.ok(body.includes('Body text.'));
   });
 
@@ -207,208 +184,6 @@ suite('fileManager – serialize/read round-trip', () => {
     const { frontmatter } = await readIssueFile(filePath);
     assert.ok(frontmatter['gh-projects'], 'gh-projects namespace should be present');
     assert.strictEqual((frontmatter['gh-projects'] as Record<string, unknown>)['field1'], 'val1');
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Section 4: issueNumberFromFileName
-// ---------------------------------------------------------------------------
-suite('fileManager – issueNumberFromFileName', () => {
-  test('extracts number from new-style template', () => {
-    assert.strictEqual(issueNumberFromFileName('42-fix-the-bug', '{gh-issues.number}-{gh-issues.title}'), 42);
-  });
-
-  test('extracts number from legacy template', () => {
-    assert.strictEqual(issueNumberFromFileName('42-fix-the-bug', '{issue-num}-{issue-title}'), 42);
-  });
-
-  test('extracts number when title contains dashes', () => {
-    assert.strictEqual(issueNumberFromFileName('7-some-long-title-here', '{gh-issues.number}-{gh-issues.title}'), 7);
-  });
-
-  test('extracts number from number-only template (no title token)', () => {
-    assert.strictEqual(issueNumberFromFileName('issue-99', 'issue-{gh-issues.number}'), 99);
-  });
-
-  test('extracts number from template with prefix and suffix around num', () => {
-    assert.strictEqual(issueNumberFromFileName('GH-123-my-task', 'GH-{gh-issues.number}-{gh-issues.title}'), 123);
-  });
-
-  test('returns null when filename does not start with the template prefix', () => {
-    assert.strictEqual(issueNumberFromFileName('fix-the-bug', '{gh-issues.number}-{gh-issues.title}'), null);
-  });
-
-  test('returns null for an empty string', () => {
-    assert.strictEqual(issueNumberFromFileName('', '{gh-issues.number}-{gh-issues.title}'), null);
-  });
-
-  test('returns null when template has no number token', () => {
-    assert.strictEqual(issueNumberFromFileName('anything', 'no-placeholder'), null);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Section 5: findFileByNumber
-// ---------------------------------------------------------------------------
-suite('fileManager – findFileByNumber', () => {
-  let tmpDir: string;
-
-  setup(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'find-issue-test-'));
-  });
-
-  teardown(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  test('finds the file matching the issue number', async () => {
-    const filePath = path.join(tmpDir, '42-fix-the-bug.md');
-    await fs.promises.writeFile(filePath, '# content', 'utf8');
-
-    const result = await findFileByNumber(tmpDir, 42, '{gh-issues.number}-{gh-issues.title}');
-    assert.strictEqual(result, filePath);
-  });
-
-  test('returns null when no file matches the issue number', async () => {
-    await fs.promises.writeFile(path.join(tmpDir, '99-other.md'), '# other', 'utf8');
-
-    const result = await findFileByNumber(tmpDir, 42, '{gh-issues.number}-{gh-issues.title}');
-    assert.strictEqual(result, null);
-  });
-
-  test('returns null when directory does not exist', async () => {
-    const result = await findFileByNumber(path.join(tmpDir, 'nonexistent'), 1, '{gh-issues.number}-{gh-issues.title}');
-    assert.strictEqual(result, null);
-  });
-
-  test('ignores files that are not .md', async () => {
-    await fs.promises.writeFile(path.join(tmpDir, '42-fix-the-bug.txt'), 'text', 'utf8');
-
-    const result = await findFileByNumber(tmpDir, 42, '{gh-issues.number}-{gh-issues.title}');
-    assert.strictEqual(result, null);
-  });
-
-  test('finds file even when another issue has a similar number prefix', async () => {
-    await fs.promises.writeFile(path.join(tmpDir, '4-short.md'), '# 4', 'utf8');
-    await fs.promises.writeFile(path.join(tmpDir, '42-fix-the-bug.md'), '# 42', 'utf8');
-
-    const result = await findFileByNumber(tmpDir, 42, '{gh-issues.number}-{gh-issues.title}');
-    assert.strictEqual(result, path.join(tmpDir, '42-fix-the-bug.md'));
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Section 6: findFileByIssueNumberInFrontmatter
-// ---------------------------------------------------------------------------
-suite('fileManager – findFileByIssueNumberInFrontmatter', () => {
-  let tmpDir: string;
-
-  setup(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'frontmatter-find-test-'));
-  });
-
-  teardown(() => {
-    fs.rmSync(tmpDir, { recursive: true, force: true });
-  });
-
-  function makeFrontmatter(number: number): IssueFrontmatter {
-    return { 'gh-issues': { number, title: 'Some Issue', state: 'open', labels: [], assignees: [] } };
-  }
-
-  test('finds file whose gh-issues.number matches, regardless of filename', async () => {
-    // Arrange
-    const filePath = path.join(tmpDir, 'issue-42.md');
-    await writeIssueFile(filePath, makeFrontmatter(42), 'body');
-
-    // Act
-    const result = await findFileByIssueNumberInFrontmatter(tmpDir, 42);
-
-    // Assert
-    assert.strictEqual(result, filePath);
-  });
-
-  test('finds file named with old template when current template differs', async () => {
-    // Arrange
-    const oldPath = path.join(tmpDir, '7-fix-the-bug.md');
-    await writeIssueFile(oldPath, makeFrontmatter(7), 'body');
-
-    // Act
-    const result = await findFileByIssueNumberInFrontmatter(tmpDir, 7);
-
-    // Assert
-    assert.strictEqual(result, oldPath);
-  });
-
-  test('returns null when no file has a matching frontmatter number', async () => {
-    // Arrange
-    await writeIssueFile(path.join(tmpDir, '99-other.md'), makeFrontmatter(99), 'body');
-
-    // Act
-    const result = await findFileByIssueNumberInFrontmatter(tmpDir, 42);
-
-    // Assert
-    assert.strictEqual(result, null);
-  });
-
-  test('returns null when directory does not exist', async () => {
-    // Arrange / Act
-    const result = await findFileByIssueNumberInFrontmatter(path.join(tmpDir, 'nonexistent'), 1);
-
-    // Assert
-    assert.strictEqual(result, null);
-  });
-
-  test('skips non-.md files', async () => {
-    // Arrange
-    await fs.promises.writeFile(path.join(tmpDir, '42.txt'), 'not markdown', 'utf8');
-
-    // Act
-    const result = await findFileByIssueNumberInFrontmatter(tmpDir, 42);
-
-    // Assert
-    assert.strictEqual(result, null);
-  });
-
-  test('skips files with no gh-issues frontmatter', async () => {
-    // Arrange
-    const content = '---\ntitle: No Number\nstate: open\n---\nbody\n';
-    await fs.promises.writeFile(path.join(tmpDir, 'no-number.md'), content, 'utf8');
-
-    // Act
-    const result = await findFileByIssueNumberInFrontmatter(tmpDir, 42);
-
-    // Assert
-    assert.strictEqual(result, null);
-  });
-
-  test('disambiguates same issue number across repos using repository parameter', async () => {
-    // Arrange
-    const fileA = path.join(tmpDir, '42-from-repo-a.md');
-    const fileB = path.join(tmpDir, '42-from-repo-b.md');
-    const fmA: IssueFrontmatter = { 'gh-issues': { number: 42, title: 'A', state: 'open', labels: [], assignees: [], repository: 'owner/repo-a' } };
-    const fmB: IssueFrontmatter = { 'gh-issues': { number: 42, title: 'B', state: 'open', labels: [], assignees: [], repository: 'owner/repo-b' } };
-    await writeIssueFile(fileA, fmA, 'body A');
-    await writeIssueFile(fileB, fmB, 'body B');
-
-    // Act
-    const resultA = await findFileByIssueNumberInFrontmatter(tmpDir, 42, 'owner/repo-a');
-    const resultB = await findFileByIssueNumberInFrontmatter(tmpDir, 42, 'owner/repo-b');
-
-    // Assert
-    assert.strictEqual(resultA, fileA);
-    assert.strictEqual(resultB, fileB);
-  });
-
-  test('returns first match when repository is not specified (backwards compat)', async () => {
-    // Arrange
-    const file = path.join(tmpDir, '7-issue.md');
-    await writeIssueFile(file, makeFrontmatter(7), 'body');
-
-    // Act
-    const result = await findFileByIssueNumberInFrontmatter(tmpDir, 7, undefined);
-
-    // Assert
-    assert.strictEqual(result, file);
   });
 });
 

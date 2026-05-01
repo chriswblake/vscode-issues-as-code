@@ -436,7 +436,7 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
 
     const filePath = path.join(oldLocation, '1-issue.md');
     fs.writeFileSync(filePath, 'content', 'utf8');
-    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
+    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
 
     const oldTargets = [{ filesDir: oldLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
     const newTargets = [{ filesDir: newLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
@@ -461,7 +461,7 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
 
     const filePath = path.join(oldLocation, '1-issue.md');
     fs.writeFileSync(filePath, 'content', 'utf8');
-    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
+    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
 
     const oldTargets = [{ filesDir: oldLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
     const newTargets = [{ filesDir: newLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
@@ -487,7 +487,7 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
     const filePath = path.join(oldLocation, '1-issue.md');
     fs.writeFileSync(filePath, 'content', 'utf8');
     const remote = makeRemoteInfo({ number: 1, updated_at: '2024-03-01T00:00:00Z' });
-    await stateManager.setSyncedAt(filePath, remote);
+    await stateManager.setSyncedAt(filePath, remote, 'gh-issues', 'owner/repo/1');
 
     const oldTargets = [{ filesDir: oldLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
     const newTargets = [{ filesDir: newLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
@@ -517,7 +517,7 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
     const oldFilePath = path.join(oldLocation, '1-issue.md');
     const newFilePath = path.join(newLocation, '1-issue.md');
     fs.writeFileSync(newFilePath, 'content', 'utf8');
-    await stateManager.setSyncedAt(oldFilePath, makeRemoteInfo({ number: 1 }));
+    await stateManager.setSyncedAt(oldFilePath, makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
 
     const oldTargets = [{ filesDir: oldLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
     const newTargets = [{ filesDir: newLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
@@ -541,7 +541,7 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
 
     const filePath = path.join(location, '1-issue.md');
     fs.writeFileSync(filePath, 'content', 'utf8');
-    await stateManager.setSyncedAt(filePath, makeRemoteInfo());
+    await stateManager.setSyncedAt(filePath, makeRemoteInfo(), 'gh-issues', 'owner/repo/1');
 
     const targets = [{ filesDir: location, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
 
@@ -567,7 +567,7 @@ suite('syncManager – reconcileTargetChanges (delete)', () => {
 
     const filePath = path.join(location, '1-issue.md');
     fs.writeFileSync(filePath, 'content', 'utf8');
-    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
+    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
 
     const oldTargets = [{ filesDir: location, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
     const newTargets: typeof oldTargets = [];
@@ -591,7 +591,7 @@ suite('syncManager – reconcileTargetChanges (delete)', () => {
 
     const filePath = path.join(location, '1-issue.md');
     fs.writeFileSync(filePath, 'content', 'utf8');
-    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
+    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
 
     const oldTargets = [{ filesDir: location, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
     const newTargets: typeof oldTargets = [];
@@ -616,7 +616,7 @@ suite('syncManager – reconcileTargetChanges (delete)', () => {
 
     // State points to a file that no longer exists (already deleted in a prior partial run)
     const filePath = path.join(location, '1-issue.md');
-    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
+    await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
 
     const oldTargets = [{ filesDir: location, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
     const newTargets: typeof oldTargets = [];
@@ -644,8 +644,8 @@ suite('syncManager – reconcileTargetChanges (delete)', () => {
     const removedFile = path.join(removedLocation, '2-removed.md');
     fs.writeFileSync(keptFile, 'kept', 'utf8');
     fs.writeFileSync(removedFile, 'removed', 'utf8');
-    await stateManager.setSyncedAt(keptFile, makeRemoteInfo({ number: 1 }));
-    await stateManager.setSyncedAt(removedFile, makeRemoteInfo({ number: 2 }));
+    await stateManager.setSyncedAt(keptFile, makeRemoteInfo({ number: 1 }), 'gh-issues', 'owner/repo/1');
+    await stateManager.setSyncedAt(removedFile, makeRemoteInfo({ number: 2 }), 'gh-issues', 'owner/repo/2');
 
     const oldTargets = [
       { filesDir: keptLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } },
