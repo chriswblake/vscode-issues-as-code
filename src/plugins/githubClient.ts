@@ -1,5 +1,7 @@
 import { Octokit } from '@octokit/rest';
 
+const GITHUB_API_VERSION = '2022-11-28';
+
 export interface IssueData {
   number: number;
   title: string;
@@ -16,18 +18,21 @@ export interface IssueData {
 export class GitHubClient {
   public readonly octokit: Octokit;
 
-  constructor(
-    accessToken: string,
-    private readonly owner: string,
-    private readonly repo: string,
-  ) {
-    this.octokit = new Octokit({ auth: accessToken });
+  constructor(accessToken: string) {
+    this.octokit = new Octokit({
+      auth: accessToken,
+      request: {
+        headers: {
+          'X-GitHub-Api-Version': GITHUB_API_VERSION,
+        },
+      },
+    });
   }
 
   /**
    * Static factory: authenticates via VS Code's built-in GitHub auth provider.
    */
-  static async authenticate(owner: string, repo: string): Promise<GitHubClient | null> {
+  static async authenticate(): Promise<GitHubClient | null> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const vscode = require('vscode');
@@ -38,19 +43,27 @@ export class GitHubClient {
       if (!session) {
         return null;
       }
-      return new GitHubClient(session.accessToken, owner, repo);
+      return new GitHubClient(session.accessToken);
     } catch {
       return null;
     }
   }
 
   /**
-   * Lists issues matching a GitHub search query. Filters out pull requests.
-   * Fetches full body for each result (search API truncates body).
+   * Discovers issue numbers matching a GitHub search query.
+   * The query should already include any repo: qualifiers if scoped to a repository.
    */
-  async listIssues(query: string): Promise<IssueData[]> {
-    const fullQuery = `${query} repo:${this.owner}/${this.repo}`;
-    const searchResults = await this.octokit.paginate(this.octokit.rest.search.issuesAndPullRequests, { q: fullQuery, per_page: 100 }, (response) => {
+  async searchIssueNumbers(query: string): Promise<number[]> {
+    const items = await this.searchIssues(query);
+    return items.map((item) => item.number);
+  }
+
+  /**
+   * Searches for issues and returns structured results including repository info.
+   * Useful for cross-repo searches where owner/repo isn't known upfront.
+   */
+  async searchIssues(query: string): Promise<Array<{ number: number; owner: string; repo: string }>> {
+    const searchResults = await this.octokit.paginate(this.octokit.rest.search.issuesAndPullRequests, { q: query, per_page: 100 }, (response) => {
       const remaining = response.headers['x-ratelimit-remaining'];
       if (remaining !== undefined) {
         console.log(`[issuesAsCode] x-ratelimit-remaining: ${remaining}`);
@@ -58,30 +71,24 @@ export class GitHubClient {
       return response.data;
     });
 
-    // Filter out pull requests
-    const issues = searchResults.filter((item) => !item.pull_request);
-
-    // Fetch full bodies (search API may truncate)
-    const BATCH_SIZE = 20;
-    const results: IssueData[] = [];
-
-    for (let i = 0; i < issues.length; i += BATCH_SIZE) {
-      const batch = issues.slice(i, i + BATCH_SIZE);
-      if (i > 0) {
-        await delay(250);
-      }
-      const fetched = await Promise.all(batch.map((item) => this.getIssue(item.number)));
-      results.push(...fetched);
-    }
-
-    return results;
+    // Filter out pull requests and extract repo info from repository_url
+    return searchResults
+      .filter((item) => !item.pull_request)
+      .map((item) => {
+        // repository_url format: "https://api.github.com/repos/owner/repo"
+        const repoUrl = (item as { repository_url?: string }).repository_url ?? '';
+        const parts = repoUrl.split('/');
+        const repo = parts[parts.length - 1] ?? '';
+        const owner = parts[parts.length - 2] ?? '';
+        return { number: item.number, owner, repo };
+      });
   }
 
-  /** Gets a single issue by number. */
-  async getIssue(number: number): Promise<IssueData> {
+  /** Gets a single issue by number using the REST API. */
+  async getIssue(owner: string, repo: string, number: number): Promise<IssueData> {
     const { data } = await this.octokit.rest.issues.get({
-      owner: this.owner,
-      repo: this.repo,
+      owner,
+      repo,
       issue_number: number,
     });
 
@@ -89,15 +96,19 @@ export class GitHubClient {
   }
 
   /** Creates a new issue. */
-  async createIssue(params: {
-    title: string; //
-    body?: string;
-    labels?: string[];
-    assignees?: string[];
-  }): Promise<IssueData> {
+  async createIssue(
+    owner: string, //
+    repo: string,
+    params: {
+      title: string;
+      body?: string;
+      labels?: string[];
+      assignees?: string[];
+    },
+  ): Promise<IssueData> {
     const { data } = await this.octokit.rest.issues.create({
-      owner: this.owner,
-      repo: this.repo,
+      owner,
+      repo,
       ...params,
     });
     return mapIssue(data);
@@ -105,6 +116,8 @@ export class GitHubClient {
 
   /** Updates an existing issue. */
   async updateIssue(
+    owner: string, //
+    repo: string,
     number: number,
     params: {
       title?: string;
@@ -115,17 +128,13 @@ export class GitHubClient {
     },
   ): Promise<IssueData> {
     const { data } = await this.octokit.rest.issues.update({
-      owner: this.owner,
-      repo: this.repo,
+      owner,
+      repo,
       issue_number: number,
       ...params,
     });
     return mapIssue(data);
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

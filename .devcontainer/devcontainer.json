@@ -1,6 +1,6 @@
 {
   "name": "Issues as Code",
-  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-20-bullseye",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22-bullseye",
 
   "postCreateCommand": "bash .devcontainer/postCreate.sh",
 

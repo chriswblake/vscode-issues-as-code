@@ -2,12 +2,14 @@ import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { resolveQuery, getConfig, defaultSyncTargets, repoInfoFromTarget, ensureGitignore } from '../src/configManager';
+import { resolveQueryDateTokens as resolveQuery, buildSearchQuery as buildGhIssuesQuery } from '../src/plugins/ghIssuesPlugin';
+import { getConfig, parseOwnerRepo, ensureGitignore, resolveWorkspacePath } from '../src/configManager';
+import { defaultSyncTargets } from '../src/plugins/ghIssuesBootstrap';
 
 // ---------------------------------------------------------------------------
 // Section 1: resolveQuery – basic {today-Nd} substitution
 // ---------------------------------------------------------------------------
-suite('configManager – resolveQuery basic substitution', () => {
+suite('ghIssuesPlugin – resolveQuery basic substitution', () => {
   test('replaces {today-10d} with a date 10 days ago', () => {
     const result = resolveQuery('closed:>{today-10d}');
     const expected = new Date();
@@ -31,7 +33,7 @@ suite('configManager – resolveQuery basic substitution', () => {
 // ---------------------------------------------------------------------------
 // Section 2: resolveQuery – multiple tokens, no tokens, various N values
 // ---------------------------------------------------------------------------
-suite('configManager – resolveQuery multiple / edge tokens', () => {
+suite('ghIssuesPlugin – resolveQuery multiple / edge tokens', () => {
   test('replaces multiple {today-Nd} tokens in one string', () => {
     const result = resolveQuery('{today-1d} {today-30d}');
     const d1 = new Date();
@@ -64,7 +66,7 @@ suite('configManager – resolveQuery multiple / edge tokens', () => {
 // ---------------------------------------------------------------------------
 // Section 3: resolveQuery – edge cases
 // ---------------------------------------------------------------------------
-suite('configManager – resolveQuery edge cases', () => {
+suite('ghIssuesPlugin – resolveQuery edge cases', () => {
   test('empty string returns empty string', () => {
     assert.strictEqual(resolveQuery(''), '');
   });
@@ -89,6 +91,55 @@ suite('configManager – resolveQuery edge cases', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Section 3b: buildGhIssuesQuery
+// ---------------------------------------------------------------------------
+suite('ghIssuesPlugin – buildSearchQuery', () => {
+  test('builds query with state filter', () => {
+    const result = buildGhIssuesQuery({ repository: 'owner/repo', state: 'open' });
+    assert.ok(result.includes('is:issue'));
+    assert.ok(result.includes('state:open'));
+  });
+
+  test('builds query with single label', () => {
+    const result = buildGhIssuesQuery({ repository: 'owner/repo', label: 'bug' });
+    assert.ok(result.includes('label:bug'));
+  });
+
+  test('builds query with multiple labels', () => {
+    const result = buildGhIssuesQuery({ repository: 'owner/repo', label: ['bug', 'help wanted'] });
+    assert.ok(result.includes('label:bug'));
+    assert.ok(result.includes('label:help wanted'));
+  });
+
+  test('builds query with assignee filter', () => {
+    const result = buildGhIssuesQuery({ repository: 'owner/repo', assignee: 'octocat' });
+    assert.ok(result.includes('assignee:octocat'));
+  });
+
+  test('builds query with author filter', () => {
+    const result = buildGhIssuesQuery({ repository: 'owner/repo', author: 'octocat' });
+    assert.ok(result.includes('author:octocat'));
+  });
+
+  test('does not include repository in the query string', () => {
+    const result = buildGhIssuesQuery({ repository: 'owner/repo', state: 'open' });
+    assert.ok(!result.includes('owner/repo'));
+  });
+
+  test('resolves {today-Nd} tokens in created_at', () => {
+    const result = buildGhIssuesQuery({ repository: 'owner/repo', created_at: '>{today-10d}' });
+    const expected = new Date();
+    expected.setDate(expected.getDate() - 10);
+    assert.ok(result.includes(expected.toISOString().slice(0, 10)));
+  });
+
+  test('returns at minimum "is:issue" for filters with only repository', () => {
+    const result = buildGhIssuesQuery({ repository: 'owner/repo' });
+    assert.strictEqual(result.trim(), 'is:issue');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Section 4: getConfig – default values (no vscode context)
 // ---------------------------------------------------------------------------
 suite('configManager – getConfig defaults', () => {
@@ -109,6 +160,25 @@ suite('configManager – getConfig defaults', () => {
     const config = getConfig('/workspace');
     assert.strictEqual(config.enableExperimentalProjects, false);
   });
+
+  test('syncStatePath defaults to sync-state.yml', () => {
+    const config = getConfig('/workspace');
+    assert.ok(config.syncStatePath.endsWith('sync-state.yml'));
+  });
+
+  test('resolveWorkspacePath resolves relative paths from the workspace root', () => {
+    const resolvedPath = resolveWorkspacePath('.issues/open', '/workspace');
+
+    assert.strictEqual(resolvedPath, path.join('/workspace', '.issues', 'open'));
+  });
+
+  test('resolveWorkspacePath rejects absolute paths', () => {
+    assert.throws(
+      () => resolveWorkspacePath('/tmp/issues/open', '/workspace'),
+      /Absolute paths are not allowed/,
+    );
+  });
+
 });
 
 // ---------------------------------------------------------------------------
@@ -118,79 +188,69 @@ suite('configManager – defaultSyncTargets', () => {
   test('returns two targets for the given owner/repo', () => {
     const targets = defaultSyncTargets('myorg', 'myrepo', '/workspace');
     assert.strictEqual(targets.length, 2);
-    assert.ok(targets[0].repository_url.includes('myorg'));
-    assert.ok(targets[0].repository_url.includes('myrepo'));
-    assert.ok(targets[1].repository_url.includes('myorg'));
-    assert.ok(targets[1].repository_url.includes('myrepo'));
   });
 
-  test('repository_url is a full GitHub HTTPS URL', () => {
+  test('gh-issues.filters.repository is "owner/repo" format', () => {
     const targets = defaultSyncTargets('myorg', 'myrepo', '/workspace');
     for (const t of targets) {
-      assert.match(t.repository_url, /^https:\/\/github\.com\/myorg\/myrepo$/);
+      assert.strictEqual(((t['gh-issues'] as any)?.filters).repository, 'myorg/myrepo');
     }
   });
 
-  test('first target is an open-issues query', () => {
+  test('first target has open state filter', () => {
     const targets = defaultSyncTargets('myorg', 'myrepo', '/workspace');
-    assert.ok(targets[0].query.includes('state:open'));
+    assert.strictEqual(((targets[0]['gh-issues'] as any)?.filters).state, 'open');
   });
 
-  test('second target is a recently-closed query', () => {
+  test('second target has a recently-closed query via created_at', () => {
     const targets = defaultSyncTargets('myorg', 'myrepo', '/workspace');
-    assert.ok(targets[1].query.includes('closed:>'));
+    assert.ok(((targets[1]['gh-issues'] as any)?.filters).created_at?.includes('{today-10d}') || ((targets[1]['gh-issues'] as any)?.filters).created_at?.includes('{today-'));
   });
 
-  test('locations are under {workspaceDir}/.issues', () => {
+  test('filesDir values are under the workspace .issues directory', () => {
     const targets = defaultSyncTargets('myorg', 'myrepo', '/workspace');
     for (const t of targets) {
-      assert.ok(t.location.startsWith(path.join('/workspace', '.issues')));
+      assert.ok(t.filesDir.startsWith(path.join('/workspace', '.issues')));
     }
   });
 
-  test('different owners/repos produce different repository_urls', () => {
+  test('different owners/repos produce different repository values', () => {
     const t1 = defaultSyncTargets('org1', 'repo1', '/workspace');
     const t2 = defaultSyncTargets('org2', 'repo2', '/workspace');
-    assert.notStrictEqual(t1[0].repository_url, t2[0].repository_url);
+    assert.notStrictEqual((t1[0]['gh-issues'] as any)?.filters.repository, (t2[0]['gh-issues'] as any)?.filters.repository);
+  });
+
+  test('naming uses new-style tokens', () => {
+    const targets = defaultSyncTargets('myorg', 'myrepo', '/workspace');
+    for (const t of targets) {
+      assert.ok(t.naming?.includes('{gh-issues.number}'));
+    }
   });
 });
 
+// (repoInfoFromTarget tests removed — function moved to plugin-specific code)
+
 // ---------------------------------------------------------------------------
-// Section 5b: repoInfoFromTarget
+// Section 5c: parseOwnerRepo
 // ---------------------------------------------------------------------------
-suite('configManager – repoInfoFromTarget', () => {
-  test('parses HTTPS repository_url correctly', () => {
-    const target = { repository_url: 'https://github.com/my-org/my-repo', query: '', location: '' };
-    const info = repoInfoFromTarget(target);
-    assert.ok(info);
-    assert.strictEqual(info!.owner, 'my-org');
-    assert.strictEqual(info!.repo, 'my-repo');
+suite('configManager – parseOwnerRepo', () => {
+  test('parses standard owner/repo string', () => {
+    const result = parseOwnerRepo('my-org/my-repo');
+    assert.ok(result);
+    assert.strictEqual(result!.owner, 'my-org');
+    assert.strictEqual(result!.repo, 'my-repo');
   });
 
-  test('parses URL with .git suffix', () => {
-    const target = { repository_url: 'https://github.com/my-org/my-repo.git', query: '', location: '' };
-    const info = repoInfoFromTarget(target);
-    assert.ok(info);
-    assert.strictEqual(info!.owner, 'my-org');
-    assert.strictEqual(info!.repo, 'my-repo');
+  test('returns null for string without slash', () => {
+    assert.strictEqual(parseOwnerRepo('noslash'), null);
   });
 
-  test('returns null for an invalid URL', () => {
-    const target = { repository_url: 'not-a-url', query: '', location: '' };
-    const info = repoInfoFromTarget(target);
-    assert.strictEqual(info, null);
+  test('returns null for empty string', () => {
+    assert.strictEqual(parseOwnerRepo(''), null);
   });
 
-  test('returns null for an empty string', () => {
-    const target = { repository_url: '', query: '', location: '' };
-    const info = repoInfoFromTarget(target);
-    assert.strictEqual(info, null);
-  });
-
-  test('returns null for a non-GitHub URL', () => {
-    const target = { repository_url: 'https://gitlab.com/my-org/my-repo', query: '', location: '' };
-    const info = repoInfoFromTarget(target);
-    assert.strictEqual(info, null);
+  test('returns null for string with too many segments', () => {
+    assert.strictEqual(parseOwnerRepo('a/b/c'), null);
   });
 });
 
