@@ -2,14 +2,20 @@ import * as fs from 'fs';
 import * as path from 'path';
 import matter from 'gray-matter';
 import type { IssueData } from './githubClient';
+import type { GhIssuesFilters } from './configManager';
 
-export interface IssueFrontmatter {
+export interface GhIssuesFrontmatter {
   number?: number;
   title: string;
   state: 'open' | 'closed';
   labels: string[];
   assignees: string[];
-  projects?: Record<string, Record<string, string>>;
+}
+
+export interface IssueFrontmatter {
+  'gh-issues'?: GhIssuesFrontmatter;
+  'gh-projects'?: Record<string, unknown>;
+  'tick-tick'?: Record<string, unknown>;
 }
 
 /** Reads and parses a Markdown issue file into frontmatter + body. */
@@ -17,14 +23,28 @@ export async function readIssueFile(filePath: string): Promise<{ frontmatter: Is
   const raw = await fs.promises.readFile(filePath, 'utf8');
   const { data, content } = matter(raw);
 
-  const frontmatter: IssueFrontmatter = {
-    number: typeof data['number'] === 'number' ? data['number'] : undefined,
-    title: String(data['title'] ?? ''),
-    state: data['state'] === 'closed' ? 'closed' : 'open',
-    labels: Array.isArray(data['labels']) ? data['labels'].map(String) : [],
-    assignees: Array.isArray(data['assignees']) ? data['assignees'].map(String) : [],
-    projects: typeof data['projects'] === 'object' && data['projects'] !== null ? (data['projects'] as Record<string, Record<string, string>>) : undefined,
-  };
+  const rawGhIssues = data['gh-issues'];
+  let ghIssues: GhIssuesFrontmatter | undefined;
+  if (rawGhIssues && typeof rawGhIssues === 'object') {
+    ghIssues = {
+      number: typeof rawGhIssues['number'] === 'number' ? rawGhIssues['number'] : undefined,
+      title: String(rawGhIssues['title'] ?? ''),
+      state: rawGhIssues['state'] === 'closed' ? 'closed' : 'open',
+      labels: Array.isArray(rawGhIssues['labels']) ? rawGhIssues['labels'].map(String) : [],
+      assignees: Array.isArray(rawGhIssues['assignees']) ? rawGhIssues['assignees'].map(String) : [],
+    };
+  }
+
+  const rawGhProjects = data['gh-projects'];
+  const ghProjects = rawGhProjects && typeof rawGhProjects === 'object' ? (rawGhProjects as Record<string, unknown>) : undefined;
+
+  const rawTickTick = data['tick-tick'];
+  const tickTick = rawTickTick && typeof rawTickTick === 'object' ? (rawTickTick as Record<string, unknown>) : undefined;
+
+  const frontmatter: IssueFrontmatter = {};
+  if (ghIssues) frontmatter['gh-issues'] = ghIssues;
+  if (ghProjects) frontmatter['gh-projects'] = ghProjects;
+  if (tickTick) frontmatter['tick-tick'] = tickTick;
 
   return { frontmatter, body: content.trimStart() };
 }
@@ -43,6 +63,8 @@ export function serializeIssueFile(frontmatter: IssueFrontmatter, body: string):
 
 /**
  * Converts an issue to a filename using a template.
+ * Supports {gh-issues.number} and {gh-issues.title} tokens (new style)
+ * as well as {issue-num} and {issue-title} tokens (legacy style).
  * Strips characters invalid in filenames, collapses consecutive dashes.
  */
 export function issueToFileName(issue: IssueData, template: string): string {
@@ -53,7 +75,11 @@ export function issueToFileName(issue: IssueData, template: string): string {
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-');
 
-  const name = template.replace('{issue-num}', String(issue.number)).replace('{issue-title}', slug);
+  const name = template
+    .replace('{gh-issues.number}', String(issue.number))
+    .replace('{gh-issues.title}', slug)
+    .replace('{issue-num}', String(issue.number))
+    .replace('{issue-title}', slug);
 
   // Final cleanup: strip any remaining invalid chars, collapse dashes
   return name
@@ -67,10 +93,15 @@ export function issueToFileName(issue: IssueData, template: string): string {
  * the configured file naming template.  Returns null if the name does not
  * match the template's numeric placeholder.
  *
- * Example: template='{issue-num}-{issue-title}', baseName='42-fix-the-bug' → 42
+ * Supports {gh-issues.number} (new style) and {issue-num} (legacy style) tokens.
+ *
+ * Example: template='{gh-issues.number}-{gh-issues.title}', baseName='42-fix-the-bug' → 42
  */
 export function issueNumberFromFileName(baseName: string, template: string): number | null {
-  const parts = template.split('{issue-num}');
+  // Support both new-style {gh-issues.number} and legacy {issue-num}
+  const normalizedTemplate = template.replace('{gh-issues.number}', '{issue-num}').replace('{gh-issues.title}', '{issue-title}');
+
+  const parts = normalizedTemplate.split('{issue-num}');
   if (parts.length !== 2) {
     return null;
   }
@@ -116,7 +147,7 @@ export async function findFileByNumber(location: string, issueNumber: number, te
 /**
  * Fallback scan when the fileNaming template may have changed.
  * Reads the frontmatter of every .md file in the directory and returns the
- * first whose `number` field matches issueNumber.
+ * first whose `gh-issues.number` field matches issueNumber.
  */
 export async function findFileByIssueNumberInFrontmatter(location: string, issueNumber: number): Promise<string | null> {
   let files: string[];
@@ -133,7 +164,7 @@ export async function findFileByIssueNumberInFrontmatter(location: string, issue
     const filePath = path.join(location, file);
     try {
       const { frontmatter } = await readIssueFile(filePath);
-      if (frontmatter.number === issueNumber) {
+      if (frontmatter['gh-issues']?.number === issueNumber) {
         return filePath;
       }
     } catch {
@@ -144,60 +175,44 @@ export async function findFileByIssueNumberInFrontmatter(location: string, issue
 }
 
 /**
- * Evaluates a resolved GitHub search query against an issue's frontmatter.
- * Supported tokens: state:, label:, assignee:, is:issue, updated:>, closed:>
- * Unknown tokens are treated as matching (return true).
+ * Evaluates a set of GhIssuesFilters against an issue's frontmatter.
+ * Checks: state, label, assignee.
+ * Filters that cannot be evaluated client-side (e.g. created_at) are skipped.
+ * Unknown keys are treated as matching (return true).
  */
-export function issueMatchesFilter(frontmatter: IssueFrontmatter, resolvedQuery: string, syncedAt?: string, closedAt?: string | null): boolean {
-  const tokens = resolvedQuery.trim().split(/\s+/);
+export function issueMatchesFilter(frontmatter: IssueFrontmatter, filters: GhIssuesFilters, syncedAt?: string, closedAt?: string | null): boolean {
+  const ghIssues = frontmatter['gh-issues'];
+  if (!ghIssues) {
+    return false;
+  }
 
-  for (const token of tokens) {
-    if (token === 'is:issue') {
-      // Always true for issue files
-      continue;
+  if (filters.state && ghIssues.state !== filters.state) {
+    return false;
+  }
+
+  if (filters.label) {
+    const labels = Array.isArray(filters.label) ? filters.label : [filters.label];
+    if (!labels.every((l) => ghIssues.labels.includes(l))) {
+      return false;
     }
+  }
 
-    if (token.startsWith('state:')) {
-      const val = token.slice('state:'.length);
-      if (frontmatter.state !== val) {
-        return false;
-      }
-      continue;
+  if (filters.assignee && !ghIssues.assignees.includes(filters.assignee)) {
+    return false;
+  }
+
+  if (filters['updated_at']) {
+    const dateStr = String(filters['updated_at']).replace(/^>/, '');
+    if (!syncedAt || new Date(syncedAt) <= new Date(dateStr)) {
+      return false;
     }
+  }
 
-    if (token.startsWith('label:')) {
-      const val = token.slice('label:'.length);
-      if (!frontmatter.labels.includes(val)) {
-        return false;
-      }
-      continue;
+  if (filters['closed_at']) {
+    const dateStr = String(filters['closed_at']).replace(/^>/, '');
+    if (!closedAt || new Date(closedAt) <= new Date(dateStr)) {
+      return false;
     }
-
-    if (token.startsWith('assignee:')) {
-      const val = token.slice('assignee:'.length);
-      if (!frontmatter.assignees.includes(val)) {
-        return false;
-      }
-      continue;
-    }
-
-    if (token.startsWith('updated:>')) {
-      const dateStr = token.slice('updated:>'.length);
-      if (!syncedAt || new Date(syncedAt) <= new Date(dateStr)) {
-        return false;
-      }
-      continue;
-    }
-
-    if (token.startsWith('closed:>')) {
-      const dateStr = token.slice('closed:>'.length);
-      if (!closedAt || new Date(closedAt) <= new Date(dateStr)) {
-        return false;
-      }
-      continue;
-    }
-
-    // Unknown token — treat as matching
   }
 
   return true;

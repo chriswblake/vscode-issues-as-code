@@ -412,7 +412,7 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
     const newLocation = path.join(root, 'new');
     fs.mkdirSync(oldLocation, { recursive: true });
 
-    const statePath = path.join(root, 'sync-state.json');
+    const statePath = path.join(root, 'sync-state.yml');
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
@@ -420,8 +420,8 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
     fs.writeFileSync(filePath, 'content', 'utf8');
     await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
 
-    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: oldLocation }];
-    const newTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: newLocation }];
+    const oldTargets = [{ filesDir: oldLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
+    const newTargets = [{ filesDir: newLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
 
     // Act
     await reconcileTargetChanges(oldTargets, newTargets, stateManager);
@@ -437,7 +437,7 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
     const newLocation = path.join(root, 'new');
     fs.mkdirSync(oldLocation, { recursive: true });
 
-    const statePath = path.join(root, 'sync-state.json');
+    const statePath = path.join(root, 'sync-state.yml');
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
@@ -445,8 +445,8 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
     fs.writeFileSync(filePath, 'content', 'utf8');
     await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
 
-    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: oldLocation }];
-    const newTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: newLocation }];
+    const oldTargets = [{ filesDir: oldLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
+    const newTargets = [{ filesDir: newLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
 
     // Act
     await reconcileTargetChanges(oldTargets, newTargets, stateManager);
@@ -462,7 +462,7 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
     const newLocation = path.join(root, 'new');
     fs.mkdirSync(oldLocation, { recursive: true });
 
-    const statePath = path.join(root, 'sync-state.json');
+    const statePath = path.join(root, 'sync-state.yml');
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
@@ -471,8 +471,8 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
     const remote = makeRemoteInfo({ number: 1, updated_at: '2024-03-01T00:00:00Z' });
     await stateManager.setSyncedAt(filePath, remote);
 
-    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: oldLocation }];
-    const newTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: newLocation }];
+    const oldTargets = [{ filesDir: oldLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
+    const newTargets = [{ filesDir: newLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
 
     // Act
     await reconcileTargetChanges(oldTargets, newTargets, stateManager);
@@ -491,7 +491,7 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
     fs.mkdirSync(oldLocation, { recursive: true });
     fs.mkdirSync(newLocation, { recursive: true });
 
-    const statePath = path.join(root, 'sync-state.json');
+    const statePath = path.join(root, 'sync-state.yml');
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
@@ -501,8 +501,8 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
     fs.writeFileSync(newFilePath, 'content', 'utf8');
     await stateManager.setSyncedAt(oldFilePath, makeRemoteInfo({ number: 1 }));
 
-    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: oldLocation }];
-    const newTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: newLocation }];
+    const oldTargets = [{ filesDir: oldLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
+    const newTargets = [{ filesDir: newLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
 
     // Act – should not throw even though source is missing
     await assert.doesNotReject(reconcileTargetChanges(oldTargets, newTargets, stateManager));
@@ -517,7 +517,7 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
     const location = path.join(root, 'issues');
     fs.mkdirSync(location, { recursive: true });
 
-    const statePath = path.join(root, 'sync-state.json');
+    const statePath = path.join(root, 'sync-state.yml');
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
@@ -525,7 +525,7 @@ suite('syncManager – reconcileTargetChanges (move)', () => {
     fs.writeFileSync(filePath, 'content', 'utf8');
     await stateManager.setSyncedAt(filePath, makeRemoteInfo());
 
-    const targets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location }];
+    const targets = [{ filesDir: location, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
 
     // Act
     await reconcileTargetChanges(targets, targets, stateManager);
@@ -543,7 +543,7 @@ suite('syncManager – reconcileTargetChanges (delete)', () => {
     const location = path.join(root, 'issues');
     fs.mkdirSync(location, { recursive: true });
 
-    const statePath = path.join(root, 'sync-state.json');
+    const statePath = path.join(root, 'sync-state.yml');
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
@@ -551,7 +551,7 @@ suite('syncManager – reconcileTargetChanges (delete)', () => {
     fs.writeFileSync(filePath, 'content', 'utf8');
     await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
 
-    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location }];
+    const oldTargets = [{ filesDir: location, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
     const newTargets: typeof oldTargets = [];
 
     // Act
@@ -567,7 +567,7 @@ suite('syncManager – reconcileTargetChanges (delete)', () => {
     const location = path.join(root, 'issues');
     fs.mkdirSync(location, { recursive: true });
 
-    const statePath = path.join(root, 'sync-state.json');
+    const statePath = path.join(root, 'sync-state.yml');
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
@@ -575,7 +575,7 @@ suite('syncManager – reconcileTargetChanges (delete)', () => {
     fs.writeFileSync(filePath, 'content', 'utf8');
     await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
 
-    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location }];
+    const oldTargets = [{ filesDir: location, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
     const newTargets: typeof oldTargets = [];
 
     // Act
@@ -592,7 +592,7 @@ suite('syncManager – reconcileTargetChanges (delete)', () => {
     const location = path.join(root, 'issues');
     fs.mkdirSync(location, { recursive: true });
 
-    const statePath = path.join(root, 'sync-state.json');
+    const statePath = path.join(root, 'sync-state.yml');
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
@@ -600,7 +600,7 @@ suite('syncManager – reconcileTargetChanges (delete)', () => {
     const filePath = path.join(location, '1-issue.md');
     await stateManager.setSyncedAt(filePath, makeRemoteInfo({ number: 1 }));
 
-    const oldTargets = [{ repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location }];
+    const oldTargets = [{ filesDir: location, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } }];
     const newTargets: typeof oldTargets = [];
 
     // Act – should not throw even though the file is missing
@@ -618,7 +618,7 @@ suite('syncManager – reconcileTargetChanges (delete)', () => {
     fs.mkdirSync(keptLocation, { recursive: true });
     fs.mkdirSync(removedLocation, { recursive: true });
 
-    const statePath = path.join(root, 'sync-state.json');
+    const statePath = path.join(root, 'sync-state.yml');
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
@@ -630,8 +630,8 @@ suite('syncManager – reconcileTargetChanges (delete)', () => {
     await stateManager.setSyncedAt(removedFile, makeRemoteInfo({ number: 2 }));
 
     const oldTargets = [
-      { repository_url: 'https://github.com/owner/repo', query: 'is:issue state:open', location: keptLocation },
-      { repository_url: 'https://github.com/owner/repo', query: 'is:issue state:closed', location: removedLocation },
+      { filesDir: keptLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'open' } } },
+      { filesDir: removedLocation, 'gh-issues': { filters: { repository: 'owner/repo', state: 'closed' } } },
     ];
     const newTargets = [oldTargets[0]];
 

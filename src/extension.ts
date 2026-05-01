@@ -85,16 +85,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
 
       const cfg = vscode.workspace.getConfiguration('issuesAsCode', folder.uri);
-      const currentTargets = cfg.get<Array<{ repository_url: string; query: string; location: string }>>('syncTargets') ?? [];
+      const currentTargets = cfg.get<SyncTarget[]>('syncTargets') ?? [];
 
-      const repositoryUrl = `https://github.com/${repoInfo.owner}/${repoInfo.repo}`;
-      const openIssuesTarget = {
-        repository_url: repositoryUrl,
-        query: 'is:issue state:open',
-        location: '{workspaceDir}/.issues/open',
+      const repository = `${repoInfo.owner}/${repoInfo.repo}`;
+      const openIssuesTarget: SyncTarget = {
+        filesDir: '{workspaceDir}/.issues/open',
+        naming: '{gh-issues.number}-{gh-issues.title}',
+        'gh-issues': {
+          filters: { repository, state: 'open' },
+        },
       };
 
-      const hasOpenTarget = currentTargets.some((t) => t.repository_url === repositoryUrl && t.query.trim() === openIssuesTarget.query);
+      const hasOpenTarget = currentTargets.some((t) => {
+        const ghFilters = t['gh-issues']?.filters;
+        return ghFilters?.repository === repository && ghFilters?.state === 'open';
+      });
 
       if (hasOpenTarget) {
         void vscode.window.showInformationMessage(`Open issues sync target already exists for ${repoInfo.owner}/${repoInfo.repo}.`);
@@ -190,7 +195,7 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
     targets = defaultSyncTargets(repoInfo.owner, repoInfo.repo, folder.uri.fsPath);
   }
 
-  await ensureGitignore(folder.uri.fsPath, [...targets.map((t) => t.location), config.syncStatePath]);
+  await ensureGitignore(folder.uri.fsPath, [...targets.map((t) => t.filesDir), config.syncStatePath]);
   await applyFilesExclude(folder, config);
 
   const stateManager = new SyncStateManager(config.syncStatePath);
@@ -210,7 +215,7 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
   context.subscriptions.push({ dispose: unsubscribeDecorations });
 
   // Remove state entries for files no longer under any active target location (handles cross-session stale entries)
-  const activeLocations = new Set(targets.map((t) => t.location));
+  const activeLocations = new Set(targets.map((t) => t.filesDir));
   for (const filePath of stateManager.getKnownFilePaths()) {
     const isActive = [...activeLocations].some((loc) => filePath.startsWith(loc + path.sep));
     if (!isActive) {
@@ -221,7 +226,7 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
   for (const target of targets) {
     const repoInfo = repoInfoFromTarget(target);
     if (!repoInfo) {
-      console.warn(`[issuesAsCode] Skipping target with unparseable repository_url: ${target.repository_url}`);
+      console.warn(`[issuesAsCode] Skipping target without a valid gh-issues repository: ${JSON.stringify(target)}`);
       continue;
     }
     const client = await GitHubClient.authenticate(repoInfo.owner, repoInfo.repo);
@@ -243,7 +248,7 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
 
   // Update decoration provider with all active managed locations and config
   if (decorationProvider) {
-    const locations = syncManagers.map((m) => ({ location: m.target.location, stateManager: m.stateManager }));
+    const locations = syncManagers.map((m) => ({ location: m.target.filesDir, stateManager: m.stateManager }));
     decorationProvider.update(locations, config.showSyncIcons);
   }
 }

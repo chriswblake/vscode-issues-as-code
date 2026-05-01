@@ -14,7 +14,7 @@ import {
 import {
   type SyncTarget, //
   type IssueConfig,
-  resolveQuery,
+  buildGhIssuesQuery,
 } from './configManager';
 import { SyncStateManager, type RemoteIssueInfo } from './syncStateManager';
 
@@ -46,7 +46,7 @@ export class SyncManager {
 
   /** Returns true if the given file path is managed by this sync manager. */
   ownsFile(filePath: string): boolean {
-    const base = this.target.location;
+    const base = this.target.filesDir;
     return filePath === base || filePath.startsWith(base + path.sep);
   }
 
@@ -55,7 +55,7 @@ export class SyncManager {
     const vs = vscode();
     const locationRelative = path.relative(
       this.workspaceFolder.uri.fsPath, //
-      this.target.location,
+      this.target.filesDir,
     );
 
     this.watcher = vs.workspace.createFileSystemWatcher(
@@ -102,38 +102,56 @@ export class SyncManager {
     try {
       await this.pullTarget();
     } catch (err) {
+      const targetLabel = this.target['gh-issues']?.filters.repository ?? this.target.filesDir;
       console.error(
-        `[issuesAsCode] pullTarget "${this.target.repository_url}" failed:`, //
+        `[issuesAsCode] pullTarget "${targetLabel}" failed:`, //
         err,
       );
     }
   }
 
-  /** Pull issues for this target. */
+  /**
+   * Pull issues for this target.
+   * Uses the Issues Search API for discovery, then the REST API to fetch
+   * full details for each individual issue before writing the local file.
+   */
   async pullTarget(): Promise<void> {
     if (this.isDisposed) {
       return;
     }
-    const resolved = resolveQuery(this.target.query);
-    const issues = await this.client.listIssues(resolved);
 
-    for (const issue of issues) {
+    const ghIssuesConfig = this.target['gh-issues'];
+    if (!ghIssuesConfig) {
+      return; // No gh-issues plugin configured for this target
+    }
+
+    // Discovery: use search API to find matching issue numbers
+    const query = buildGhIssuesQuery(ghIssuesConfig.filters);
+    const issueNumbers = await this.client.searchIssueNumbers(query);
+
+    const naming = this.target.naming ?? this.config.fileNaming;
+
+    // Per-issue update: use REST API to get full details
+    for (const issueNumber of issueNumbers) {
       if (this.isDisposed) {
         return;
       }
-      const expectedFileName = issueToFileName(issue, this.config.fileNaming) + '.md';
-      const expectedPath = path.join(this.target.location, expectedFileName);
+
+      const issue = await this.client.getIssue(issueNumber);
+
+      const expectedFileName = issueToFileName(issue, naming) + '.md';
+      const expectedPath = path.join(this.target.filesDir, expectedFileName);
 
       // Look for any existing file that tracks this issue number
       let existingPath = await findFileByNumber(
-        this.target.location, //
+        this.target.filesDir, //
         issue.number,
-        this.config.fileNaming,
+        naming,
       );
 
       // Fallback: template may have changed — scan frontmatter for a match
       if (existingPath === null) {
-        existingPath = await findFileByIssueNumberInFrontmatter(this.target.location, issue.number);
+        existingPath = await findFileByIssueNumberInFrontmatter(this.target.filesDir, issue.number);
       }
 
       if (existingPath !== null && existingPath !== expectedPath) {
@@ -165,11 +183,13 @@ export class SyncManager {
     }
 
     const cloudFrontmatter: IssueFrontmatter = {
-      number: issue.number,
-      title: issue.title,
-      state: issue.state,
-      labels: issue.labels,
-      assignees: issue.assignees,
+      'gh-issues': {
+        number: issue.number,
+        title: issue.title,
+        state: issue.state,
+        labels: issue.labels,
+        assignees: issue.assignees,
+      },
     };
     const cloudContent = serializeIssueFile(cloudFrontmatter, issue.body ?? '');
     const kind = classifyDiff(localContent, cloudContent);
@@ -197,7 +217,7 @@ export class SyncManager {
     await this.writeConflictMarkers(localPath, localContent, cloudContent, issue);
   }
 
-  /** Push a single issue file to GitHub. */
+  /** Push a single issue file to GitHub using the REST API. */
   async pushFile(filePath: string): Promise<void> {
     const raw = await fs.promises.readFile(filePath, 'utf8');
     if (hasConflictMarkers(raw)) {
@@ -205,39 +225,40 @@ export class SyncManager {
     }
 
     const { frontmatter, body } = await readIssueFile(filePath);
+    const ghIssues = frontmatter['gh-issues'];
 
-    if (frontmatter.number !== undefined) {
-      // Existing issue — check for conflicts first
-      const cloud = await this.client.getIssue(frontmatter.number);
+    if (ghIssues?.number !== undefined) {
+      // Existing issue — use REST API to check for conflicts and push
+      const cloud = await this.client.getIssue(ghIssues.number);
 
       if (isConflict(cloud.updated_at, this.stateManager.getSyncedAt(filePath))) {
         await this.handleConflict(filePath, cloud);
         return;
       }
 
-      await this.client.updateIssue(frontmatter.number, {
-        title: frontmatter.title,
+      await this.client.updateIssue(ghIssues.number, {
+        title: ghIssues.title,
         body,
-        state: frontmatter.state,
-        labels: frontmatter.labels,
-        assignees: frontmatter.assignees,
+        state: ghIssues.state,
+        labels: ghIssues.labels,
+        assignees: ghIssues.assignees,
       });
 
-      // Refresh local file; rename if title changed
-      const updated = await this.client.getIssue(frontmatter.number);
+      // Refresh local file via REST API; rename if title changed
+      const updated = await this.client.getIssue(ghIssues.number);
       await this.writeAndRename(filePath, updated, body);
     } else {
-      // New file — create issue on GitHub, then rename file to match template
+      // New file — create issue on GitHub via REST API, then rename file to match template
       const inferredTitle = inferNewIssueTitle(
         filePath, //
-        frontmatter.title,
+        ghIssues?.title ?? '',
         body,
       );
       const created = await this.client.createIssue({
         title: inferredTitle,
         body,
-        labels: frontmatter.labels,
-        assignees: frontmatter.assignees,
+        labels: ghIssues?.labels ?? [],
+        assignees: ghIssues?.assignees ?? [],
       });
       await this.writeAndRename(filePath, created, body);
     }
@@ -281,11 +302,13 @@ export class SyncManager {
   /** Handle conflict between local file and cloud version (called from pushFile). */
   private async handleConflict(localPath: string, cloudIssue: IssueData): Promise<void> {
     const cloudFrontmatter: IssueFrontmatter = {
-      number: cloudIssue.number,
-      title: cloudIssue.title,
-      state: cloudIssue.state,
-      labels: cloudIssue.labels,
-      assignees: cloudIssue.assignees,
+      'gh-issues': {
+        number: cloudIssue.number,
+        title: cloudIssue.title,
+        state: cloudIssue.state,
+        labels: cloudIssue.labels,
+        assignees: cloudIssue.assignees,
+      },
     };
     const cloudContent = serializeIssueFile(cloudFrontmatter, cloudIssue.body ?? '');
     const localContent = await fs.promises.readFile(localPath, 'utf8');
@@ -339,11 +362,13 @@ export class SyncManager {
     this.suppress(filePath, 1);
     try {
       const frontmatter: IssueFrontmatter = {
-        number: issue.number,
-        title: issue.title,
-        state: issue.state,
-        labels: issue.labels,
-        assignees: issue.assignees,
+        'gh-issues': {
+          number: issue.number,
+          title: issue.title,
+          state: issue.state,
+          labels: issue.labels,
+          assignees: issue.assignees,
+        },
       };
       await writeIssueFile(filePath, frontmatter, overrideBody ?? issue.body ?? '');
       await this.stateManager.setSyncedAt(
@@ -362,8 +387,9 @@ export class SyncManager {
    * is updated in place.
    */
   private async writeAndRename(currentPath: string, issue: IssueData, overrideBody?: string): Promise<void> {
-    const expectedFileName = issueToFileName(issue, this.config.fileNaming) + '.md';
-    const expectedPath = path.join(this.target.location, expectedFileName);
+    const naming = this.target.naming ?? this.config.fileNaming;
+    const expectedFileName = issueToFileName(issue, naming) + '.md';
+    const expectedPath = path.join(this.target.filesDir, expectedFileName);
 
     await this.writeIssueSuppressed(expectedPath, issue, overrideBody);
 
@@ -537,22 +563,24 @@ export function inferNewIssueTitle(filePath: string, frontmatterTitle: string, b
 // Target reconciliation (location changes and removals)
 // ---------------------------------------------------------------------------
 
-/** Identity key for a sync target: combination of repository URL and query. */
+/** Identity key for a sync target: based on plugin configuration so changing filesDir triggers a move. */
 function targetIdentity(target: SyncTarget): string {
-  return `${target.repository_url}||${target.query.trim()}`;
+  const ghIssues = target['gh-issues'];
+  if (ghIssues) {
+    return `gh-issues||${JSON.stringify(ghIssues.filters)}`;
+  }
+  return `filesDir||${target.filesDir}`;
 }
 
 /**
  * Reconciles the file system and sync state when sync targets change between config reloads.
  *
- * - Moved targets (same repository_url + query, different location): issue files are moved to
- *   the new location and the sync state is updated so no re-download is triggered.
+ * - Moved targets (same plugin config, different filesDir): issue files are moved to the new
+ *   location and the sync state is updated so no re-download is triggered.
  * - Removed targets (not present in new config): issue files are deleted and their state
  *   entries are removed.
  *
  * Safe from mid-process corruption: a crash leaves orphaned files at worst (no data loss).
- * Orphans in a new location are harmless; orphans in an old location will be ignored by
- * the new manager and can be cleaned up on the next reconciliation.
  */
 export async function reconcileTargetChanges(
   oldTargets: SyncTarget[], //
@@ -562,10 +590,10 @@ export async function reconcileTargetChanges(
   const oldByIdentity = new Map(oldTargets.map((t) => [targetIdentity(t), t]));
   const newByIdentity = new Map(newTargets.map((t) => [targetIdentity(t), t]));
 
-  // Move files for targets whose location changed
+  // Move files for targets whose filesDir changed
   for (const [id, oldTarget] of oldByIdentity) {
     const newTarget = newByIdentity.get(id);
-    if (newTarget && newTarget.location !== oldTarget.location) {
+    if (newTarget && newTarget.filesDir !== oldTarget.filesDir) {
       await moveTargetFiles(oldTarget, newTarget, stateManager);
     }
   }
@@ -584,51 +612,42 @@ async function moveTargetFiles(
   newTarget: SyncTarget,
   stateManager: SyncStateManager,
 ): Promise<void> {
-  const entries = stateManager.getFilesUnderLocation(oldTarget.location);
+  const entries = stateManager.getFilesUnderLocation(oldTarget.filesDir);
   if (entries.size === 0) {
     return;
   }
 
-  await fs.promises.mkdir(newTarget.location, { recursive: true });
+  await fs.promises.mkdir(newTarget.filesDir, { recursive: true });
 
   for (const [oldFilePath, entry] of entries) {
-    const newFilePath = path.join(newTarget.location, path.basename(oldFilePath));
+    const newFilePath = path.join(newTarget.filesDir, path.basename(oldFilePath));
 
     // Copy to new location; source may already be gone if this is crash recovery
     try {
       await fs.promises.copyFile(oldFilePath, newFilePath);
     } catch {
-      /* source already moved in a prior partial run */
+      /* source already gone — state cleanup still proceeds */
     }
 
-    // Update state: add new entry, remove old entry
-    await stateManager.setSyncedAt(newFilePath, entry.remote);
+    await stateManager.setSyncedAtEntry(newFilePath, entry);
     await stateManager.deleteEntry(oldFilePath);
 
-    // Remove the old file
     try {
       await fs.promises.unlink(oldFilePath);
     } catch {
       /* already gone */
     }
   }
-
-  // Best-effort: remove the now-empty old directory
-  try {
-    await fs.promises.rmdir(oldTarget.location);
-  } catch {
-    /* not empty or already removed */
-  }
 }
 
-/** Deletes all tracked issue files for a removed target and cleans up their state entries. */
+/** Deletes all tracked issue files under the old target location, and removes their state entries. */
 async function deleteTargetFiles(
   oldTarget: SyncTarget, //
   stateManager: SyncStateManager,
 ): Promise<void> {
-  const entries = stateManager.getFilesUnderLocation(oldTarget.location);
+  const entries = stateManager.getFilesUnderLocation(oldTarget.filesDir);
 
-  for (const filePath of entries.keys()) {
+  for (const [filePath] of entries) {
     try {
       await fs.promises.unlink(filePath);
     } catch {
@@ -636,12 +655,6 @@ async function deleteTargetFiles(
     }
   }
 
-  await stateManager.removeFilesUnderLocation(oldTarget.location);
-
-  // Best-effort: remove the now-empty directory
-  try {
-    await fs.promises.rmdir(oldTarget.location);
-  } catch {
-    /* not empty or already removed */
-  }
+  await stateManager.removeFilesUnderLocation(oldTarget.filesDir);
 }
+

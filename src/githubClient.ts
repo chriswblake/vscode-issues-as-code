@@ -45,10 +45,10 @@ export class GitHubClient {
   }
 
   /**
-   * Lists issues matching a GitHub search query. Filters out pull requests.
-   * Fetches full body for each result (search API truncates body).
+   * Discovers issue numbers matching a GitHub search query using the Issues Search API.
+   * Does not fetch full issue bodies; use getIssue() for per-issue details.
    */
-  async listIssues(query: string): Promise<IssueData[]> {
+  async searchIssueNumbers(query: string): Promise<number[]> {
     const fullQuery = `${query} repo:${this.owner}/${this.repo}`;
     const searchResults = await this.octokit.paginate(this.octokit.rest.search.issuesAndPullRequests, { q: fullQuery, per_page: 100 }, (response) => {
       const remaining = response.headers['x-ratelimit-remaining'];
@@ -59,25 +59,10 @@ export class GitHubClient {
     });
 
     // Filter out pull requests
-    const issues = searchResults.filter((item) => !item.pull_request);
-
-    // Fetch full bodies (search API may truncate)
-    const BATCH_SIZE = 20;
-    const results: IssueData[] = [];
-
-    for (let i = 0; i < issues.length; i += BATCH_SIZE) {
-      const batch = issues.slice(i, i + BATCH_SIZE);
-      if (i > 0) {
-        await delay(250);
-      }
-      const fetched = await Promise.all(batch.map((item) => this.getIssue(item.number)));
-      results.push(...fetched);
-    }
-
-    return results;
+    return searchResults.filter((item) => !item.pull_request).map((item) => item.number);
   }
 
-  /** Gets a single issue by number. */
+  /** Gets a single issue by number using the REST API. */
   async getIssue(number: number): Promise<IssueData> {
     const { data } = await this.octokit.rest.issues.get({
       owner: this.owner,

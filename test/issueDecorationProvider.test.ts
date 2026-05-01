@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 import { SyncStateManager, type RemoteIssueInfo } from '../src/syncStateManager';
 import { IssueDecorationProvider, type SyncStatus } from '../src/issueDecorationProvider';
 
@@ -14,7 +15,7 @@ function makeTempDir(): string {
 }
 
 function makeTempStatePath(dir: string): string {
-  return path.join(dir, 'sync-state.json');
+  return path.join(dir, 'sync-state.yml');
 }
 
 function makeRemoteInfo(overrides: Partial<RemoteIssueInfo> = {}): RemoteIssueInfo {
@@ -251,7 +252,7 @@ suite('issueDecorationProvider – path filtering', () => {
 suite('syncStateManager – local_written_at', () => {
   test('local_written_at is set to a recent ISO timestamp when setSyncedAt is called', async () => {
     // Arrange
-    const statePath = path.join(makeTempDir(), 'sync-state.json');
+    const statePath = path.join(makeTempDir(), 'sync-state.yml');
     const manager = new SyncStateManager(statePath);
     await manager.load();
     const before = Date.now();
@@ -269,7 +270,7 @@ suite('syncStateManager – local_written_at', () => {
 
   test('local_written_at is persisted to disk', async () => {
     // Arrange
-    const statePath = path.join(makeTempDir(), 'sync-state.json');
+    const statePath = path.join(makeTempDir(), 'sync-state.yml');
     const manager = new SyncStateManager(statePath);
     await manager.load();
 
@@ -277,8 +278,8 @@ suite('syncStateManager – local_written_at', () => {
     await manager.setSyncedAt('/issues/1.md', makeRemoteInfo());
 
     // Assert
-    const raw = JSON.parse(fs.readFileSync(statePath, 'utf8'));
-    assert.ok(typeof raw.files['/issues/1.md'].local_written_at === 'string');
+    const raw = yaml.safeLoad(fs.readFileSync(statePath, 'utf8')) as { files: Record<string, Record<string, unknown>> };
+    assert.ok(typeof raw.files['/issues/1.md']['local_written_at'] === 'string');
   });
 });
 
@@ -289,7 +290,7 @@ suite('syncStateManager – local_written_at', () => {
 suite('syncStateManager – onDidChange', () => {
   test('listener is called with file path when setSyncedAt is called', async () => {
     // Arrange
-    const statePath = path.join(makeTempDir(), 'sync-state.json');
+    const statePath = path.join(makeTempDir(), 'sync-state.yml');
     const manager = new SyncStateManager(statePath);
     await manager.load();
     const changed: string[] = [];
@@ -304,7 +305,7 @@ suite('syncStateManager – onDidChange', () => {
 
   test('listener is called with file path when deleteEntry is called', async () => {
     // Arrange
-    const statePath = path.join(makeTempDir(), 'sync-state.json');
+    const statePath = path.join(makeTempDir(), 'sync-state.yml');
     const manager = new SyncStateManager(statePath);
     await manager.load();
     await manager.setSyncedAt('/issues/1.md', makeRemoteInfo());
@@ -320,7 +321,7 @@ suite('syncStateManager – onDidChange', () => {
 
   test('unsubscribed listener is not called after unsubscribe', async () => {
     // Arrange
-    const statePath = path.join(makeTempDir(), 'sync-state.json');
+    const statePath = path.join(makeTempDir(), 'sync-state.yml');
     const manager = new SyncStateManager(statePath);
     await manager.load();
     const changed: string[] = [];

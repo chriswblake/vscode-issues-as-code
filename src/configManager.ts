@@ -1,11 +1,49 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+export interface GhIssuesFilters {
+  repository: string;
+  state?: string;
+  assignee?: string;
+  author?: string;
+  label?: string | string[];
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface GhIssuesConfig {
+  limit?: number;
+  filters: GhIssuesFilters;
+}
+
+export interface GhProjectsFilters {
+  projectId: string;
+  state?: string;
+  [key: string]: unknown;
+}
+
+export interface GhProjectsConfig {
+  filters: GhProjectsFilters;
+}
+
+export interface TickTickFilters {
+  list?: string;
+  state?: string;
+  [key: string]: unknown;
+}
+
+export interface TickTickConfig {
+  filters: TickTickFilters;
+}
+
 export interface SyncTarget {
-  repository_url: string;
-  query: string;
-  /** Absolute path to the folder where issue files for this target are stored. */
-  location: string;
+  /** Absolute path to the folder where synced files for this target are stored. */
+  filesDir: string;
+  /** Template for file names. Uses tokens like {gh-issues.number} and {gh-issues.title}. */
+  naming?: string;
+  'gh-issues'?: GhIssuesConfig;
+  'gh-projects'?: GhProjectsConfig;
+  'tick-tick'?: TickTickConfig;
 }
 
 export interface RepoInfo {
@@ -43,6 +81,39 @@ export function resolveQuery(query: string): string {
 }
 
 /**
+ * Builds a GitHub Issues search query string from a GhIssuesFilters object.
+ * Excludes the `repository` field (handled separately by the client).
+ */
+export function buildGhIssuesQuery(filters: GhIssuesFilters): string {
+  const parts: string[] = ['is:issue'];
+
+  if (filters.state) {
+    parts.push(`state:${filters.state}`);
+  }
+
+  if (filters.label) {
+    const labels = Array.isArray(filters.label) ? filters.label : [filters.label];
+    for (const label of labels) {
+      parts.push(`label:${label}`);
+    }
+  }
+
+  if (filters.assignee) {
+    parts.push(`assignee:${filters.assignee}`);
+  }
+
+  if (filters.author) {
+    parts.push(`author:${filters.author}`);
+  }
+
+  if (filters.created_at) {
+    parts.push(`created:${resolveQuery(String(filters.created_at))}`);
+  }
+
+  return parts.join(' ');
+}
+
+/**
  * Returns all configuration values for a workspace folder.
  * Accepts explicit values for testability.
  */
@@ -59,10 +130,10 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
       const rawTargets = cfg.get<SyncTarget[]>('syncTargets') ?? [];
       const syncTargets = rawTargets.map((t) => ({
         ...t,
-        location: t.location.replace('{workspaceDir}', workspaceFolderPath),
+        filesDir: t.filesDir.replace('{workspaceDir}', workspaceFolderPath),
       }));
 
-      const rawSyncStatePath = cfg.get<string>('syncStatePath') ?? '{workspaceDir}/.issues/sync-state.json';
+      const rawSyncStatePath = cfg.get<string>('syncStatePath') ?? '{workspaceDir}/.issues/sync-state.yml';
       const syncStatePath = rawSyncStatePath.replace('{workspaceDir}', workspaceFolderPath);
 
       const rawShowSyncIcons = cfg.get<Partial<ShowSyncIconsConfig>>('showSyncIcons') ?? {};
@@ -92,7 +163,7 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
     pushOnSaveDelay: 60,
     syncTargets: [],
     pullInterval: 30,
-    syncStatePath: path.join(workspaceFolderPath, '.issues', 'sync-state.json'),
+    syncStatePath: path.join(workspaceFolderPath, '.issues', 'sync-state.yml'),
     showSyncState: false,
     showSyncIcons: { newIssue: true, modified: true, synchronized: true },
     enableExperimentalProjects: false,
@@ -105,27 +176,47 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
  */
 export function defaultSyncTargets(owner: string, repo: string, workspaceFolderPath: string): SyncTarget[] {
   const issuesBase = path.join(workspaceFolderPath, '.issues');
-  const repositoryUrl = `https://github.com/${owner}/${repo}`;
+  const repository = `${owner}/${repo}`;
   return [
     {
-      repository_url: repositoryUrl,
-      query: 'is:issue state:open',
-      location: path.join(issuesBase, 'open'),
+      filesDir: path.join(issuesBase, 'open'),
+      naming: '{gh-issues.number}-{gh-issues.title}',
+      'gh-issues': {
+        filters: { repository, state: 'open' },
+      },
     },
     {
-      repository_url: repositoryUrl,
-      query: 'is:issue closed:>{today-10d}',
-      location: path.join(issuesBase, 'closed_10days'),
+      filesDir: path.join(issuesBase, 'closed_10days'),
+      naming: '{gh-issues.number}-{gh-issues.title}',
+      'gh-issues': {
+        filters: { repository, created_at: '>{today-10d}' },
+      },
     },
   ];
 }
 
 /**
- * Extracts owner/repo from a SyncTarget's repository_url.
- * Returns null if the URL cannot be parsed.
+ * Extracts owner/repo from a SyncTarget's gh-issues.filters.repository field.
+ * Returns null if the field is missing or cannot be parsed.
  */
 export function repoInfoFromTarget(target: SyncTarget): RepoInfo | null {
-  return parseGitHubUrl(target.repository_url);
+  const repository = target['gh-issues']?.filters?.repository;
+  if (!repository) {
+    return null;
+  }
+  return parseOwnerRepo(repository);
+}
+
+/**
+ * Parses an "owner/repo" string into a RepoInfo object.
+ * Returns null if the string does not match the expected format.
+ */
+export function parseOwnerRepo(repository: string): RepoInfo | null {
+  const match = repository.match(/^([^/]+)\/([^/]+)$/);
+  if (!match) {
+    return null;
+  }
+  return { owner: match[1], repo: match[2] };
 }
 
 /**
