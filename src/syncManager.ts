@@ -1,22 +1,16 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import type * as vscodeType from 'vscode';
-import type { GitHubClient, IssueData } from './githubClient';
 import {
   readIssueFile, //
   writeIssueFile,
-  issueToFileName,
-  findFileByNumber,
   findFileByIssueNumberInFrontmatter,
   serializeIssueFile,
   type IssueFrontmatter,
 } from './fileManager';
-import {
-  type SyncTarget, //
-  type IssueConfig,
-  buildGhIssuesQuery,
-} from './configManager';
+import { type SyncTarget, type IssueConfig } from './configManager';
 import { SyncStateManager, type RemoteIssueInfo } from './syncStateManager';
+import { type PrimarySyncPlugin, type PullItem } from './plugins/syncPlugin';
 
 // Lazy vscode import so unit tests can stub it out
 function vscode(): typeof vscodeType {
@@ -33,7 +27,7 @@ export class SyncManager {
   private isDisposed = false;
 
   constructor(
-    private client: GitHubClient,
+    readonly plugin: PrimarySyncPlugin,
     private config: IssueConfig,
     readonly target: SyncTarget,
     private workspaceFolder: vscodeType.WorkspaceFolder,
@@ -99,81 +93,129 @@ export class SyncManager {
     this.extensionWriteMtimeMs.clear();
   }
 
-  /** Pull all issues from GitHub for this target. */
+  /** Pull all remote items for this target via the plugin. */
   async pullAll(): Promise<void> {
     try {
       await this.pullTarget();
     } catch (err) {
-      const targetLabel = this.target['gh-issues']?.filters.repository ?? this.target.filesDir;
       console.error(
-        `[issuesAsCode] pullTarget "${targetLabel}" failed:`, //
+        `[issuesAsCode] pullTarget "${this.target.filesDir}" failed:`, //
         err,
       );
     }
   }
 
   /**
-   * Pull issues for this target.
-   * Uses the Issues Search API for discovery, then the REST API to fetch
-   * full details for each individual issue before writing the local file.
+   * Pull remote items for this target using the configured plugin.
+   * The plugin handles discovery and fetching; the sync manager handles
+   * file writing, conflict detection, and state management.
    */
   async pullTarget(): Promise<void> {
     if (this.isDisposed) {
       return;
     }
 
-    const ghIssuesConfig = this.target['gh-issues'];
-    if (!ghIssuesConfig) {
-      return; // No gh-issues plugin configured for this target
+    const pluginConfig = this.target[this.plugin.id] as Record<string, unknown> | undefined;
+    if (!pluginConfig) {
+      return;
     }
 
-    // Discovery: use search API to find matching issue numbers
-    const query = buildGhIssuesQuery(ghIssuesConfig.filters);
-    const issueNumbers = await this.client.searchIssueNumbers(query);
+    const context = {
+      workspaceFolderPath: this.workspaceFolder.uri.fsPath,
+      stateManager: this.stateManager,
+    };
 
+    const items = await this.plugin.pull(pluginConfig, context);
     const naming = this.target.naming ?? this.config.fileNaming;
 
-    // Per-issue update: use REST API to get full details
-    for (const issueNumber of issueNumbers) {
+    for (const item of items) {
       if (this.isDisposed) {
         return;
       }
 
-      const issue = await this.client.getIssue(issueNumber);
-
-      const expectedFileName = issueToFileName(issue, naming) + '.md';
+      const expectedFileName = this.plugin.buildFileName(item.namingTokens, naming) + '.md';
       const expectedPath = path.join(this.target.filesDir, expectedFileName);
 
-      // Look for any existing file that tracks this issue number
-      let existingPath = await findFileByNumber(
-        this.target.filesDir, //
-        issue.number,
-        naming,
-      );
+      // Look for existing file tracking this remote item (by unique remoteKey)
+      let existingPath = this.findExistingFileByKey(item.remoteKey);
 
-      // Fallback: template may have changed — scan frontmatter for a match
-      if (existingPath === null) {
-        existingPath = await findFileByIssueNumberInFrontmatter(this.target.filesDir, issue.number);
+      // Fallback: filename-based heuristic for files not yet in sync state
+      if (!existingPath) {
+        // Extract repository from remoteKey (format: "owner/repo/number")
+        const keyParts = item.remoteKey.split('/');
+        const repository = keyParts.length >= 3 ? `${keyParts[0]}/${keyParts[1]}` : undefined;
+        existingPath = await this.findExistingFileByName(item.remoteInfo.number, naming, repository);
       }
 
       if (existingPath !== null && existingPath !== expectedPath) {
-        // Title changed on GitHub — write to new path and remove the old file
-        await this.writeIssueSuppressed(expectedPath, issue);
+        // Title changed remotely — write to new path and remove old file
+        await this.writePullItemSuppressed(expectedPath, item);
         await this.unlinkSuppressed(existingPath);
       } else {
-        await this.pullIssue(existingPath ?? expectedPath, issue);
+        await this.pullItem(existingPath ?? expectedPath, item);
       }
     }
   }
 
-  /** Pull a single issue: auto-accept one-directional changes, write conflict markers for mixed. */
-  private async pullIssue(localPath: string, issue: IssueData): Promise<void> {
+  /** Finds an existing file by its remoteKey in the sync state (unique across repos). */
+  private findExistingFileByKey(remoteKey: string): string | null {
+    return this.stateManager.findFileByPluginKey(this.plugin.id, remoteKey) ?? null;
+  }
+
+  /** Filename-based heuristic fallback for files not yet tracked in sync state. */
+  private async findExistingFileByName(remoteId: number, naming: string, repository?: string): Promise<string | null> {
+    let files: string[];
+    try {
+      files = await fs.promises.readdir(this.target.filesDir);
+    } catch {
+      return null;
+    }
+
+    for (const file of files) {
+      if (!file.endsWith('.md')) {
+        continue;
+      }
+      const base = file.slice(0, -3);
+      const tokens: Record<string, string | number> = {
+        'gh-issues.number': remoteId,
+        'gh-issues.title': base,
+      };
+      const expectedStart = this.plugin.buildFileName(
+        { ...tokens, 'gh-issues.title': '' }, //
+        naming,
+      );
+      if (base.startsWith(expectedStart.replace(/-$/, ''))) {
+        const candidate = path.join(this.target.filesDir, file);
+
+        // Verify frontmatter matches to prevent prefix collisions (e.g. 42 vs 420)
+        try {
+          const { frontmatter } = await readIssueFile(candidate);
+          if (frontmatter['gh-issues']?.number !== remoteId) {
+            continue;
+          }
+          if (repository && frontmatter['gh-issues']?.repository !== repository) {
+            continue;
+          }
+        } catch {
+          continue;
+        }
+
+        return candidate;
+      }
+    }
+
+    // Fallback: scan frontmatter for the remote ID and repository
+    return await findFileByIssueNumberInFrontmatter(this.target.filesDir, remoteId, repository);
+  }
+
+  /** Pull a single item: auto-accept one-directional changes, write conflict markers for mixed. */
+  private async pullItem(localPath: string, item: PullItem): Promise<void> {
     const localExists = await fs.promises.access(localPath).then(
       () => true,
       () => false,
     );
     if (!localExists) {
-      await this.writeIssueSuppressed(localPath, issue);
+      await this.writePullItemSuppressed(localPath, item);
       return;
     }
 
@@ -185,88 +227,96 @@ export class SyncManager {
     }
 
     const cloudFrontmatter: IssueFrontmatter = {
-      'gh-issues': {
-        number: issue.number,
-        title: issue.title,
-        state: issue.state,
-        labels: issue.labels,
-        assignees: issue.assignees,
-      },
+      [this.plugin.id]: item.frontmatter,
     };
-    const cloudContent = serializeIssueFile(cloudFrontmatter, issue.body ?? '');
+    const cloudContent = serializeIssueFile(cloudFrontmatter, item.body);
     const kind = classifyDiff(localContent, cloudContent);
 
     if (kind === 'identical') {
-      // Update state entry so the state file always has a complete record of all tracked issues
-      await this.stateManager.setSyncedAt(
-        localPath, //
-        issueToRemoteInfo(issue),
-      );
+      await this.stateManager.setSyncedAt(localPath, item.remoteInfo);
       return;
     }
 
-    if (!isConflict(issue.updated_at, this.stateManager.getSyncedAt(localPath))) {
-      // Cloud hasn't changed since last sync — local edits are pending push; leave them alone
+    if (!isConflict(item.remoteInfo.updated_at, this.stateManager.getSyncedAt(localPath))) {
+      // Cloud hasn't changed since last sync — local edits are pending push
       return;
     }
 
     if (kind === 'additions-only' || kind === 'removals-only') {
-      await this.writeIssueSuppressed(localPath, issue);
+      await this.writePullItemSuppressed(localPath, item);
       return;
     }
 
-    // Mixed: write conflict markers so the user can resolve all conflicts in-editor
-    await this.writeConflictMarkers(localPath, localContent, cloudContent, issue);
+    // Mixed: write conflict markers
+    await this.writeConflictMarkers(localPath, localContent, cloudContent, item.remoteInfo);
   }
 
-  /** Push a single issue file to GitHub using the REST API. */
+  /** Push a single file to the remote service via the plugin. */
   async pushFile(filePath: string): Promise<void> {
     const raw = await fs.promises.readFile(filePath, 'utf8');
     if (hasConflictMarkers(raw)) {
-      return; // Unresolved merge conflict — wait for the user to resolve before pushing
+      return;
     }
 
     const { frontmatter, body } = await readIssueFile(filePath);
-    const ghIssues = frontmatter['gh-issues'];
+    const pluginConfig = this.target[this.plugin.id] as Record<string, unknown> | undefined;
+    if (!pluginConfig) {
+      return;
+    }
 
-    if (ghIssues?.number !== undefined) {
-      // Existing issue — use REST API to check for conflicts and push
-      const cloud = await this.client.getIssue(ghIssues.number);
+    const remoteId = this.plugin.getRemoteId(frontmatter);
+    const context = {
+      workspaceFolderPath: this.workspaceFolder.uri.fsPath,
+      stateManager: this.stateManager,
+    };
 
-      if (isConflict(cloud.updated_at, this.stateManager.getSyncedAt(filePath))) {
-        await this.handleConflict(filePath, cloud);
+    if (remoteId !== undefined) {
+      // Existing item — check for conflicts before pushing
+      // Build the full remote key from frontmatter for unique identification
+      const ghIssues = frontmatter['gh-issues'];
+      const repository = ghIssues?.repository ?? '';
+      const remoteKey = repository ? `${repository}/${remoteId}` : String(remoteId);
+
+      // Re-pull to get latest remote state for conflict check
+      const items = await this.plugin.pull(pluginConfig, context);
+      const cloudItem = items.find((i) => i.remoteKey === remoteKey);
+
+      if (cloudItem && isConflict(cloudItem.remoteInfo.updated_at, this.stateManager.getSyncedAt(filePath))) {
+        await this.handlePullConflict(filePath, cloudItem);
         return;
       }
+    }
 
-      await this.client.updateIssue(ghIssues.number, {
-        title: ghIssues.title,
-        body,
-        state: ghIssues.state,
-        labels: ghIssues.labels,
-        assignees: ghIssues.assignees,
-      });
+    // Infer title for new files
+    if (remoteId === undefined) {
+      const title = this.plugin.inferTitle(filePath, frontmatter, body);
+      if (frontmatter[this.plugin.id]) {
+        (frontmatter[this.plugin.id] as Record<string, unknown>).title = title;
+      } else {
+        (frontmatter as Record<string, unknown>)[this.plugin.id] = { title };
+      }
+    }
 
-      // Refresh local file via REST API; rename if title changed
-      const updated = await this.client.getIssue(ghIssues.number);
-      await this.writeAndRename(filePath, updated, body);
-    } else {
-      // New file — create issue on GitHub via REST API, then rename file to match template
-      const inferredTitle = inferNewIssueTitle(
-        filePath, //
-        ghIssues?.title ?? '',
-        body,
-      );
-      const created = await this.client.createIssue({
-        title: inferredTitle,
-        body,
-        labels: ghIssues?.labels ?? [],
-        assignees: ghIssues?.assignees ?? [],
-      });
-      await this.writeAndRename(filePath, created, body);
+    const result = await this.plugin.push(frontmatter, body, pluginConfig, context);
+
+    // Write updated file with server-assigned data
+    const naming = this.target.naming ?? this.config.fileNaming;
+    const expectedFileName = this.plugin.buildFileName(result.namingTokens, naming) + '.md';
+    const expectedPath = path.join(this.target.filesDir, expectedFileName);
+
+    const updatedFrontmatter: IssueFrontmatter = {
+      ...frontmatter,
+      [this.plugin.id]: result.frontmatter,
+    };
+
+    await this.writeFileSuppressed(expectedPath, updatedFrontmatter, result.body, result.remoteInfo);
+
+    if (expectedPath !== filePath) {
+      await this.unlinkSuppressed(filePath);
     }
   }
 
-  /** Debounced push — called from file watcher. */
+  /** Debounced push — called from file watcher on changes to existing files. */
   debouncedPush(filePath: string): void {
     const existing = this.debounceTimers.get(filePath);
     if (existing) {
@@ -301,56 +351,50 @@ export class SyncManager {
     return (this.suppressedUris.get(filePath) ?? 0) > 0;
   }
 
-  /** Handle conflict between local file and cloud version (called from pushFile). */
-  private async handleConflict(localPath: string, cloudIssue: IssueData): Promise<void> {
+  /** Handle conflict detected during push by comparing with a pulled item. */
+  private async handlePullConflict(localPath: string, cloudItem: PullItem): Promise<void> {
     const cloudFrontmatter: IssueFrontmatter = {
-      'gh-issues': {
-        number: cloudIssue.number,
-        title: cloudIssue.title,
-        state: cloudIssue.state,
-        labels: cloudIssue.labels,
-        assignees: cloudIssue.assignees,
-      },
+      [this.plugin.id]: cloudItem.frontmatter,
     };
-    const cloudContent = serializeIssueFile(cloudFrontmatter, cloudIssue.body ?? '');
+    const cloudContent = serializeIssueFile(cloudFrontmatter, cloudItem.body);
     const localContent = await fs.promises.readFile(localPath, 'utf8');
 
-    // Auto-accept one-directional changes
     const kind = classifyDiff(localContent, cloudContent);
     if (kind === 'identical' || kind === 'additions-only' || kind === 'removals-only') {
-      await this.writeAndRename(localPath, cloudIssue);
+      await this.writePullItemSuppressed(localPath, cloudItem);
       return;
     }
 
-    // Mixed: write conflict markers so the user can resolve all conflicts in-editor
-    await this.writeConflictMarkers(localPath, localContent, cloudContent, cloudIssue);
+    await this.writeConflictMarkers(localPath, localContent, cloudContent, cloudItem.remoteInfo);
   }
 
   /** Writes merge conflict markers into localPath and advances the sync timestamp. */
-  private async writeConflictMarkers(localPath: string, localContent: string, cloudContent: string, issue: IssueData): Promise<void> {
+  private async writeConflictMarkers(
+    localPath: string, //
+    localContent: string,
+    cloudContent: string,
+    remoteInfo: RemoteIssueInfo,
+  ): Promise<void> {
     const conflictContent = generateConflictContent(localContent, cloudContent);
     this.suppress(localPath, 1);
     try {
       await fs.promises.writeFile(localPath, conflictContent, 'utf8');
       await this.markExtensionWrite(localPath);
-      await this.stateManager.setSyncedAt(
-        localPath, //
-        issueToRemoteInfo(issue),
-      );
+      await this.stateManager.setSyncedAt(localPath, remoteInfo);
     } finally {
       this.suppress(localPath, -1);
     }
 
-    void vscode().window.showWarningMessage(`Issue #${issue.number} has conflicting changes. Resolve the conflict markers in ${path.basename(localPath)}, then save.`);
+    void vscode().window.showWarningMessage(
+      `${path.basename(localPath)} has conflicting changes. Resolve the conflict markers, then save.`,
+    );
   }
 
-  /** Handles a newly created .md file in the issues directory. */
-  private async handleNewFile(uri: vscodeType.Uri): Promise<void> {
-    if (await this.shouldIgnoreFileEvent(uri.fsPath)) {
-      return;
-    }
-    // Debounce to let the user finish writing
-    this.debouncedPush(uri.fsPath);
+  /** Handles a newly created .md file — never auto-pushes (see CodeLens provider). */
+  private async handleNewFile(_uri: vscodeType.Uri): Promise<void> {
+    // New file events are intentionally ignored for push.
+    // Files pulled from remote are suppressed during write.
+    // User-created files require explicit publish via CodeLens or command.
   }
 
   private onFileChanged(uri: vscodeType.Uri): void {
@@ -361,6 +405,18 @@ export class SyncManager {
     if (await this.shouldIgnoreFileEvent(filePath)) {
       return;
     }
+
+    // Only auto-push files that are already published (have a remote ID).
+    // Unpublished files require explicit action via the CodeLens or command.
+    try {
+      const { frontmatter } = await readIssueFile(filePath);
+      if (this.plugin.getRemoteId(frontmatter) === undefined) {
+        return;
+      }
+    } catch {
+      return;
+    }
+
     this.debouncedPush(filePath);
   }
 
@@ -380,72 +436,50 @@ export class SyncManager {
         return true;
       }
     } catch {
-      // File no longer exists. Treat this event as extension-authored and clear stale fence.
       this.extensionWriteMtimeMs.delete(filePath);
       return true;
     }
 
-    // A newer mtime means this is likely a real user edit; clear fence and allow push.
     this.extensionWriteMtimeMs.delete(filePath);
     return false;
   }
 
-  /**
-   * Records the mtime after an extension-authored write.
-   * This allows delayed watcher events for the same write to be ignored.
-   */
+  /** Records the mtime after an extension-authored write. */
   private async markExtensionWrite(filePath: string): Promise<void> {
     try {
       const stat = await fs.promises.stat(filePath);
       this.extensionWriteMtimeMs.set(filePath, stat.mtimeMs);
     } catch {
-      // Ignore if file cannot be stat'ed (e.g. deleted immediately after write).
+      // Ignore if file cannot be stat'ed
     }
   }
 
-  /** Writes an issue file while suppressing watcher events for it. */
-  private async writeIssueSuppressed(filePath: string, issue: IssueData, overrideBody?: string): Promise<void> {
+  /** Writes a pulled item's data while suppressing watcher events. */
+  private async writePullItemSuppressed(filePath: string, item: PullItem): Promise<void> {
+    const frontmatter: IssueFrontmatter = {
+      [this.plugin.id]: item.frontmatter,
+    };
+    await this.writeFileSuppressed(filePath, frontmatter, item.body, item.remoteInfo);
+  }
+
+  /** Writes a file while suppressing watcher events and updating sync state. */
+  private async writeFileSuppressed(
+    filePath: string, //
+    frontmatter: IssueFrontmatter,
+    body: string,
+    remoteInfo: RemoteIssueInfo,
+  ): Promise<void> {
     this.suppress(filePath, 1);
     try {
-      const frontmatter: IssueFrontmatter = {
-        'gh-issues': {
-          number: issue.number,
-          title: issue.title,
-          state: issue.state,
-          labels: issue.labels,
-          assignees: issue.assignees,
-        },
-      };
-      await writeIssueFile(filePath, frontmatter, overrideBody ?? issue.body ?? '');
+      await writeIssueFile(filePath, frontmatter, body);
       await this.markExtensionWrite(filePath);
-      await this.stateManager.setSyncedAt(
-        filePath, //
-        issueToRemoteInfo(issue),
-      );
+      await this.stateManager.setSyncedAt(filePath, remoteInfo);
     } finally {
       this.suppress(filePath, -1);
     }
   }
 
-  /**
-   * Writes issue data to the correct template-derived path.
-   * If the derived path differs from currentPath (because the title changed),
-   * the old file is deleted and the new file is written; otherwise the file
-   * is updated in place.
-   */
-  private async writeAndRename(currentPath: string, issue: IssueData, overrideBody?: string): Promise<void> {
-    const naming = this.target.naming ?? this.config.fileNaming;
-    const expectedFileName = issueToFileName(issue, naming) + '.md';
-    const expectedPath = path.join(this.target.filesDir, expectedFileName);
-
-    await this.writeIssueSuppressed(expectedPath, issue, overrideBody);
-
-    if (expectedPath !== currentPath) {
-      await this.unlinkSuppressed(currentPath);
-    }
-  }
-
-  /** Deletes a file while suppressing watcher events for that path, and removes its state entry. */
+  /** Deletes a file while suppressing watcher events and removes its state entry. */
   private async unlinkSuppressed(filePath: string): Promise<void> {
     this.suppress(filePath, 1);
     try {
@@ -457,17 +491,6 @@ export class SyncManager {
       this.suppress(filePath, -1);
     }
   }
-}
-
-/** Maps an IssueData to the RemoteIssueInfo shape stored in the sync state. */
-function issueToRemoteInfo(issue: IssueData): RemoteIssueInfo {
-  return {
-    number: issue.number, //
-    state: issue.state,
-    updated_at: issue.updated_at,
-    closed_at: issue.closed_at,
-    html_url: issue.html_url,
-  };
 }
 
 /** Pure helper: returns true if the file content contains unresolved merge conflict markers. */
@@ -584,35 +607,11 @@ export function generateConflictContent(localContent: string, cloudContent: stri
       output.push(...localSection);
       output.push('=======');
       output.push(...cloudSection);
-      output.push('>>>>>>> GitHub');
+      output.push('>>>>>>> Remote');
     }
   }
 
   return output.join('\n');
-}
-
-/**
- * Derives a title for new local issue files when frontmatter.title is missing.
- * Priority: explicit title -> first non-empty body line (without markdown heading) -> file name.
- */
-export function inferNewIssueTitle(filePath: string, frontmatterTitle: string, body: string): string {
-  const explicit = frontmatterTitle.trim();
-  if (explicit) {
-    return explicit;
-  }
-
-  const bodyLine = body
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0);
-  if (bodyLine) {
-    const cleaned = bodyLine.replace(/^#+\s*/, '').trim();
-    if (cleaned) {
-      return cleaned;
-    }
-  }
-
-  return path.basename(filePath, path.extname(filePath)).trim() || 'New issue';
 }
 
 // ---------------------------------------------------------------------------
@@ -621,9 +620,16 @@ export function inferNewIssueTitle(filePath: string, frontmatterTitle: string, b
 
 /** Identity key for a sync target: based on plugin configuration so changing filesDir triggers a move. */
 function targetIdentity(target: SyncTarget): string {
-  const ghIssues = target['gh-issues'];
-  if (ghIssues) {
-    return `gh-issues||${JSON.stringify(ghIssues.filters)}`;
+  // Find plugin config keys (anything that's not a core SyncTarget field)
+  const coreFields = new Set(['filesDir', 'naming']);
+  for (const key of Object.keys(target)) {
+    if (coreFields.has(key)) {
+      continue;
+    }
+    const pluginConfig = target[key];
+    if (pluginConfig && typeof pluginConfig === 'object') {
+      return `${key}||${JSON.stringify(pluginConfig)}`;
+    }
   }
   return `filesDir||${target.filesDir}`;
 }

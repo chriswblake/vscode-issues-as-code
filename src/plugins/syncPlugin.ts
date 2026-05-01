@@ -1,0 +1,152 @@
+import type { IssueFrontmatter } from '../fileManager';
+import type { SyncStateManager, RemoteIssueInfo } from '../syncStateManager';
+
+// ---------------------------------------------------------------------------
+// Plugin result types
+// ---------------------------------------------------------------------------
+
+/** Represents one remote item fetched during a pull operation. */
+export interface PullItem {
+  /** Unique remote identifier (e.g. "owner/repo/42" for gh-issues). */
+  remoteKey: string;
+  /** Data used to render the file name from the naming template. */
+  namingTokens: Record<string, string | number>;
+  /** Frontmatter section owned by this plugin (merged into the file's frontmatter). */
+  frontmatter: Record<string, unknown>;
+  /** File body content (only primary plugins provide this). */
+  body: string;
+  /** Remote revision info for conflict detection. */
+  remoteInfo: RemoteIssueInfo;
+}
+
+/** Result of a push operation. */
+export interface PushResult {
+  /** Updated remote info after the push. */
+  remoteInfo: RemoteIssueInfo;
+  /** Updated frontmatter section for this plugin. */
+  frontmatter: Record<string, unknown>;
+  /** Updated naming tokens (e.g. if title changed on create). */
+  namingTokens: Record<string, string | number>;
+  /** Updated body (e.g. after server-side normalization). */
+  body: string;
+}
+
+// ---------------------------------------------------------------------------
+// Plugin context (provided by the sync manager to each plugin call)
+// ---------------------------------------------------------------------------
+
+export interface PluginContext {
+  /** The workspace folder path. */
+  workspaceFolderPath: string;
+  /** Access to the sync state for this workspace. */
+  stateManager: SyncStateManager;
+}
+
+// ---------------------------------------------------------------------------
+// Primary Sync Plugin — owns file body, title, creation, and naming
+// ---------------------------------------------------------------------------
+
+/**
+ * A primary sync plugin provides the source of truth for task file content.
+ * Each sync target has exactly one primary plugin (e.g. gh-issues).
+ * The primary plugin owns: body content, naming tokens, and create/update.
+ */
+export interface PrimarySyncPlugin {
+  /** Plugin identifier matching the config key (e.g. 'gh-issues'). */
+  readonly id: string;
+
+  /**
+   * Discovers and fetches remote items matching the target's plugin config.
+   * Returns one PullItem per remote task/issue.
+   */
+  pull(pluginConfig: Record<string, unknown>, context: PluginContext): Promise<PullItem[]>;
+
+  /**
+   * Pushes a local file's content to the remote service.
+   * Called for both new (create) and existing (update) items.
+   */
+  push(
+    frontmatter: IssueFrontmatter, //
+    body: string,
+    pluginConfig: Record<string, unknown>,
+    context: PluginContext,
+  ): Promise<PushResult>;
+
+  /**
+   * Renders a filename from the naming template and remote data tokens.
+   * Handles slug generation and character sanitization.
+   */
+  buildFileName(namingTokens: Record<string, string | number>, template: string): string;
+
+  /**
+   * Returns the plugin-specific numeric/string ID from frontmatter, if present.
+   * Used to determine if a file is "new" (unpublished) or existing.
+   */
+  getRemoteId(frontmatter: IssueFrontmatter): number | string | undefined;
+
+  /**
+   * Infers a title for a new file that has no explicit title in frontmatter.
+   * Used when creating a new remote item from a local file.
+   */
+  inferTitle(filePath: string, frontmatter: IssueFrontmatter, body: string): string;
+}
+
+// ---------------------------------------------------------------------------
+// Metadata Plugin — enriches frontmatter without owning body/naming
+// ---------------------------------------------------------------------------
+
+/**
+ * A metadata plugin enriches files with additional data from an external service
+ * (e.g. GitHub Projects fields). It does not own the file body or naming.
+ */
+export interface MetadataPlugin {
+  /** Plugin identifier matching the config key (e.g. 'gh-projects'). */
+  readonly id: string;
+
+  /**
+   * Fetches metadata for an item identified by the primary plugin's frontmatter.
+   * Returns the frontmatter section to merge under this plugin's namespace.
+   */
+  enrich(
+    primaryFrontmatter: Record<string, unknown>, //
+    pluginConfig: Record<string, unknown>,
+    context: PluginContext,
+  ): Promise<Record<string, unknown> | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Plugin registry
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Plugin Registry — lookup plugins by ID for multi-plugin scenarios
+// ---------------------------------------------------------------------------
+
+const primaryPlugins = new Map<string, PrimarySyncPlugin>();
+const metadataPlugins = new Map<string, MetadataPlugin>();
+
+export function registerPrimaryPlugin(plugin: PrimarySyncPlugin): void {
+  primaryPlugins.set(plugin.id, plugin);
+}
+
+export function registerMetadataPlugin(plugin: MetadataPlugin): void {
+  metadataPlugins.set(plugin.id, plugin);
+}
+
+export function getPrimaryPlugin(id: string): PrimarySyncPlugin | undefined {
+  return primaryPlugins.get(id);
+}
+
+export function getMetadataPlugin(id: string): MetadataPlugin | undefined {
+  return metadataPlugins.get(id);
+}
+
+/** Returns all registered primary plugin IDs. */
+export function getPrimaryPluginIds(): string[] {
+  return [...primaryPlugins.keys()];
+}
+
+/** Returns all registered metadata plugin IDs. */
+export function getMetadataPluginIds(): string[] {
+  return [...metadataPlugins.keys()];
+}

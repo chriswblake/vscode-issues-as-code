@@ -2,12 +2,13 @@ import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { resolveQuery, buildGhIssuesQuery, getConfig, defaultSyncTargets, repoInfoFromTarget, parseOwnerRepo, ensureGitignore, resolveWorkspacePath } from '../src/configManager';
+import { resolveQueryDateTokens as resolveQuery, buildSearchQuery as buildGhIssuesQuery } from '../src/plugins/ghIssuesPlugin';
+import { getConfig, defaultSyncTargets, repoInfoFromTarget, parseOwnerRepo, ensureGitignore, resolveWorkspacePath } from '../src/configManager';
 
 // ---------------------------------------------------------------------------
 // Section 1: resolveQuery – basic {today-Nd} substitution
 // ---------------------------------------------------------------------------
-suite('configManager – resolveQuery basic substitution', () => {
+suite('ghIssuesPlugin – resolveQuery basic substitution', () => {
   test('replaces {today-10d} with a date 10 days ago', () => {
     const result = resolveQuery('closed:>{today-10d}');
     const expected = new Date();
@@ -31,7 +32,7 @@ suite('configManager – resolveQuery basic substitution', () => {
 // ---------------------------------------------------------------------------
 // Section 2: resolveQuery – multiple tokens, no tokens, various N values
 // ---------------------------------------------------------------------------
-suite('configManager – resolveQuery multiple / edge tokens', () => {
+suite('ghIssuesPlugin – resolveQuery multiple / edge tokens', () => {
   test('replaces multiple {today-Nd} tokens in one string', () => {
     const result = resolveQuery('{today-1d} {today-30d}');
     const d1 = new Date();
@@ -64,7 +65,7 @@ suite('configManager – resolveQuery multiple / edge tokens', () => {
 // ---------------------------------------------------------------------------
 // Section 3: resolveQuery – edge cases
 // ---------------------------------------------------------------------------
-suite('configManager – resolveQuery edge cases', () => {
+suite('ghIssuesPlugin – resolveQuery edge cases', () => {
   test('empty string returns empty string', () => {
     assert.strictEqual(resolveQuery(''), '');
   });
@@ -91,7 +92,7 @@ suite('configManager – resolveQuery edge cases', () => {
 // ---------------------------------------------------------------------------
 // Section 3b: buildGhIssuesQuery
 // ---------------------------------------------------------------------------
-suite('configManager – buildGhIssuesQuery', () => {
+suite('ghIssuesPlugin – buildSearchQuery', () => {
   test('builds query with state filter', () => {
     const result = buildGhIssuesQuery({ repository: 'owner/repo', state: 'open' });
     assert.ok(result.includes('is:issue'));
@@ -191,18 +192,18 @@ suite('configManager – defaultSyncTargets', () => {
   test('gh-issues.filters.repository is "owner/repo" format', () => {
     const targets = defaultSyncTargets('myorg', 'myrepo', '/workspace');
     for (const t of targets) {
-      assert.strictEqual(t['gh-issues']?.filters.repository, 'myorg/myrepo');
+      assert.strictEqual(((t['gh-issues'] as any)?.filters).repository, 'myorg/myrepo');
     }
   });
 
   test('first target has open state filter', () => {
     const targets = defaultSyncTargets('myorg', 'myrepo', '/workspace');
-    assert.strictEqual(targets[0]['gh-issues']?.filters.state, 'open');
+    assert.strictEqual(((targets[0]['gh-issues'] as any)?.filters).state, 'open');
   });
 
   test('second target has a recently-closed query via created_at', () => {
     const targets = defaultSyncTargets('myorg', 'myrepo', '/workspace');
-    assert.ok(targets[1]['gh-issues']?.filters.created_at?.includes('{today-10d}') || targets[1]['gh-issues']?.filters.created_at?.includes('{today-'));
+    assert.ok(((targets[1]['gh-issues'] as any)?.filters).created_at?.includes('{today-10d}') || ((targets[1]['gh-issues'] as any)?.filters).created_at?.includes('{today-'));
   });
 
   test('filesDir values are under the workspace .issues directory', () => {
@@ -215,7 +216,7 @@ suite('configManager – defaultSyncTargets', () => {
   test('different owners/repos produce different repository values', () => {
     const t1 = defaultSyncTargets('org1', 'repo1', '/workspace');
     const t2 = defaultSyncTargets('org2', 'repo2', '/workspace');
-    assert.notStrictEqual(t1[0]['gh-issues']?.filters.repository, t2[0]['gh-issues']?.filters.repository);
+    assert.notStrictEqual((t1[0]['gh-issues'] as any)?.filters.repository, (t2[0]['gh-issues'] as any)?.filters.repository);
   });
 
   test('naming uses new-style tokens', () => {

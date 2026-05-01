@@ -1,4 +1,10 @@
 import { Octokit } from '@octokit/rest';
+import type { IssueFrontmatter } from '../fileManager';
+import type { MetadataPlugin, PluginContext } from './syncPlugin';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 export interface ProjectFieldData {
   projectId: string;
@@ -9,15 +15,49 @@ export interface ProjectFieldData {
   value: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Plugin implementation
+// ---------------------------------------------------------------------------
+
 /**
- * Experimental plugin for GitHub Projects v2 metadata sync.
- * Only loaded when issuesAsCode.enable_experimental_projects is true.
+ * Metadata plugin for GitHub Projects v2.
+ * Enriches issue files with project field data (status, iteration, etc.).
+ * Does not own file body or naming — only adds to the 'gh-projects' frontmatter section.
  */
-export class ProjectsSyncPlugin {
+export class GhProjectsPlugin implements MetadataPlugin {
+  readonly id = 'gh-projects';
+
   constructor(private readonly octokit: Octokit) {}
 
+  async enrich(
+    primaryFrontmatter: Record<string, unknown>, //
+    _pluginConfig: Record<string, unknown>,
+    _context: PluginContext,
+  ): Promise<Record<string, unknown> | null> {
+    const nodeId = primaryFrontmatter['node_id'] as string | undefined;
+    if (!nodeId) {
+      return null;
+    }
+
+    const fields = await this.getProjectFields(nodeId);
+    if (fields.length === 0) {
+      return null;
+    }
+
+    // Group fields by project title
+    const byProject: Record<string, Record<string, string | null>> = {};
+    for (const field of fields) {
+      if (!byProject[field.projectTitle]) {
+        byProject[field.projectTitle] = {};
+      }
+      byProject[field.projectTitle][field.fieldName] = field.value;
+    }
+
+    return byProject;
+  }
+
   /**
-   * Returns project field values for an issue via GraphQL.
+   * Fetches project field values for an issue via GraphQL.
    */
   async getProjectFields(issueNodeId: string): Promise<ProjectFieldData[]> {
     const query = `

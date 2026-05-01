@@ -2,7 +2,8 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { isConflict, isExtensionWriteEvent, inferNewIssueTitle, classifyDiff, generateConflictContent, hasConflictMarkers, reconcileTargetChanges } from '../src/syncManager';
+import { isConflict, isExtensionWriteEvent, classifyDiff, generateConflictContent, hasConflictMarkers, reconcileTargetChanges } from '../src/syncManager';
+import { GhIssuesPlugin } from '../src/plugins/ghIssuesPlugin';
 import { SyncStateManager, type RemoteIssueInfo } from '../src/syncStateManager';
 
 // ---------------------------------------------------------------------------
@@ -152,23 +153,26 @@ suite('syncManager – extension write event fence', () => {
 // Section 2b: New issue title inference
 // ---------------------------------------------------------------------------
 suite('syncManager – new issue title inference', () => {
+  // Uses the GhIssuesPlugin.inferTitle method (previously inferNewIssueTitle)
+  const plugin = new GhIssuesPlugin(null as any);
+
   test('prefers explicit frontmatter title when present', () => {
-    const result = inferNewIssueTitle('/issues/new.md', 'My explicit title', 'Body line');
+    const result = plugin.inferTitle('/issues/new.md', { 'gh-issues': { title: 'My explicit title', state: 'open', labels: [], assignees: [] } }, 'Body line');
     assert.strictEqual(result, 'My explicit title');
   });
 
   test('uses first non-empty body line when frontmatter title is blank', () => {
-    const result = inferNewIssueTitle('/issues/new.md', '   ', '\n\nThis is body title\nMore details');
+    const result = plugin.inferTitle('/issues/new.md', { 'gh-issues': { title: '   ', state: 'open', labels: [], assignees: [] } }, '\n\nThis is body title\nMore details');
     assert.strictEqual(result, 'This is body title');
   });
 
   test('strips markdown heading markers from body-derived title', () => {
-    const result = inferNewIssueTitle('/issues/new.md', '', '# Heading Title\nBody');
+    const result = plugin.inferTitle('/issues/new.md', { 'gh-issues': { title: '', state: 'open', labels: [], assignees: [] } }, '# Heading Title\nBody');
     assert.strictEqual(result, 'Heading Title');
   });
 
   test('falls back to filename when title and body are empty', () => {
-    const result = inferNewIssueTitle('/issues/bug in step 3.md', '', '   \n  ');
+    const result = plugin.inferTitle('/issues/bug in step 3.md', { 'gh-issues': { title: '', state: 'open', labels: [], assignees: [] } }, '   \n  ');
     assert.strictEqual(result, 'bug in step 3');
   });
 });
@@ -322,7 +326,7 @@ suite('syncManager – generateConflictContent', () => {
     const result = generateConflictContent(local, cloud);
 
     // Assert
-    const expected = 'intro\n<<<<<<< Local\nold line\n=======\nnew line\n>>>>>>> GitHub\noutro';
+    const expected = 'intro\n<<<<<<< Local\nold line\n=======\nnew line\n>>>>>>> Remote\noutro';
     assert.strictEqual(result, expected);
   });
 
@@ -335,7 +339,7 @@ suite('syncManager – generateConflictContent', () => {
     const result = generateConflictContent(local, cloud);
 
     // Assert
-    assert.ok(result.includes('<<<<<<< Local\n=======\ninserted\n>>>>>>> GitHub'));
+    assert.ok(result.includes('<<<<<<< Local\n=======\ninserted\n>>>>>>> Remote'));
   });
 
   test('removed-only hunk has empty cloud section', () => {
@@ -347,7 +351,7 @@ suite('syncManager – generateConflictContent', () => {
     const result = generateConflictContent(local, cloud);
 
     // Assert
-    assert.ok(result.includes('<<<<<<< Local\nremoved\n=======\n>>>>>>> GitHub'));
+    assert.ok(result.includes('<<<<<<< Local\nremoved\n=======\n>>>>>>> Remote'));
   });
 
   test('unchanged context lines appear outside markers', () => {
@@ -376,7 +380,7 @@ suite('syncManager \u2013 hasConflictMarkers', () => {
 
   test('returns true when conflict start marker is present', () => {
     // Arrange
-    const content = 'line one\n<<<<<<< Local\nmine\n=======\ntheirs\n>>>>>>> GitHub\nline two';
+    const content = 'line one\n<<<<<<< Local\nmine\n=======\ntheirs\n>>>>>>> Remote\nline two';
 
     // Act / Assert
     assert.strictEqual(hasConflictMarkers(content), true);

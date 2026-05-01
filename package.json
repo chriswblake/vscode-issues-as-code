@@ -31,6 +31,18 @@
       {
         "command": "issuesAsCode.addOpenIssuesDefaultConfig",
         "title": "Issues as Code: Add Open Issues Default Config"
+      },
+      {
+        "command": "issuesAsCode.addMyIssuesOnGitHub",
+        "title": "Issues as Code: Add setting - My issues on GitHub"
+      },
+      {
+        "command": "issuesAsCode.addMyIssuesOnThisRepo",
+        "title": "Issues as Code: Add setting - My issues on this repository"
+      },
+      {
+        "command": "issuesAsCode.publishFile",
+        "title": "Issues as Code: Publish to Remote"
       }
     ],
     "configuration": {
@@ -71,10 +83,6 @@
                 "type": "object",
                 "description": "GitHub Issues plugin configuration.",
                 "properties": {
-                  "limit": {
-                    "type": "number",
-                    "description": "Maximum number of issues to fetch."
-                  },
                   "filters": {
                     "type": "object",
                     "description": "Filter criteria for GitHub Issues.",

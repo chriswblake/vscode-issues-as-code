@@ -2,9 +2,9 @@ import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { issueToFileName, issueNumberFromFileName, findFileByNumber, findFileByIssueNumberInFrontmatter, issueMatchesFilter, serializeIssueFile, readIssueFile, writeIssueFile, type IssueFrontmatter } from '../src/fileManager';
+import { issueToFileName, issueNumberFromFileName, findFileByNumber, findFileByIssueNumberInFrontmatter, serializeIssueFile, readIssueFile, writeIssueFile, type IssueFrontmatter } from '../src/fileManager';
+import { matchesFilter, type GhIssuesFilters } from '../src/plugins/ghIssuesPlugin';
 import type { IssueData } from '../src/githubClient';
-import type { GhIssuesFilters } from '../src/configManager';
 
 // ---------------------------------------------------------------------------
 // Section 1: issueToFileName
@@ -64,9 +64,9 @@ suite('fileManager – issueToFileName', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 2: issueMatchesFilter
+// Section 2: matchesFilter
 // ---------------------------------------------------------------------------
-suite('fileManager – issueMatchesFilter', () => {
+suite('fileManager – matchesFilter', () => {
   function makeFrontmatter(overrides: Partial<{ state: 'open' | 'closed'; labels: string[]; assignees: string[] }> = {}): IssueFrontmatter {
     return {
       'gh-issues': {
@@ -85,53 +85,53 @@ suite('fileManager – issueMatchesFilter', () => {
 
   test('state:open matches open issue', () => {
     const fm = makeFrontmatter({ state: 'open' });
-    assert.strictEqual(issueMatchesFilter(fm, makeFilters({ state: 'open' })), true);
+    assert.strictEqual(matchesFilter(fm, makeFilters({ state: 'open' })), true);
   });
 
   test('state:open does not match closed issue', () => {
     const fm = makeFrontmatter({ state: 'closed' });
-    assert.strictEqual(issueMatchesFilter(fm, makeFilters({ state: 'open' })), false);
+    assert.strictEqual(matchesFilter(fm, makeFilters({ state: 'open' })), false);
   });
 
   test('state:closed matches closed issue', () => {
     const fm = makeFrontmatter({ state: 'closed' });
-    assert.strictEqual(issueMatchesFilter(fm, makeFilters({ state: 'closed' })), true);
+    assert.strictEqual(matchesFilter(fm, makeFilters({ state: 'closed' })), true);
   });
 
   test('label filter matches when label present', () => {
     const fm = makeFrontmatter({ labels: ['bug', 'help wanted'] });
-    assert.strictEqual(issueMatchesFilter(fm, makeFilters({ label: 'bug' })), true);
+    assert.strictEqual(matchesFilter(fm, makeFilters({ label: 'bug' })), true);
   });
 
   test('label filter does not match when label absent', () => {
     const fm = makeFrontmatter({ labels: ['enhancement'] });
-    assert.strictEqual(issueMatchesFilter(fm, makeFilters({ label: 'bug' })), false);
+    assert.strictEqual(matchesFilter(fm, makeFilters({ label: 'bug' })), false);
   });
 
   test('label array filter: all labels must be present', () => {
     const fm = makeFrontmatter({ labels: ['bug', 'help wanted'] });
-    assert.strictEqual(issueMatchesFilter(fm, makeFilters({ label: ['bug', 'help wanted'] })), true);
-    assert.strictEqual(issueMatchesFilter(fm, makeFilters({ label: ['bug', 'missing'] })), false);
+    assert.strictEqual(matchesFilter(fm, makeFilters({ label: ['bug', 'help wanted'] })), true);
+    assert.strictEqual(matchesFilter(fm, makeFilters({ label: ['bug', 'missing'] })), false);
   });
 
   test('assignee filter matches when assignee present', () => {
     const fm = makeFrontmatter({ assignees: ['octocat'] });
-    assert.strictEqual(issueMatchesFilter(fm, makeFilters({ assignee: 'octocat' })), true);
+    assert.strictEqual(matchesFilter(fm, makeFilters({ assignee: 'octocat' })), true);
   });
 
   test('assignee filter does not match when assignee absent', () => {
     const fm = makeFrontmatter({ assignees: [] });
-    assert.strictEqual(issueMatchesFilter(fm, makeFilters({ assignee: 'octocat' })), false);
+    assert.strictEqual(matchesFilter(fm, makeFilters({ assignee: 'octocat' })), false);
   });
 
   test('filters with only repository field always match', () => {
     const fm = makeFrontmatter();
-    assert.strictEqual(issueMatchesFilter(fm, makeFilters()), true);
+    assert.strictEqual(matchesFilter(fm, makeFilters()), true);
   });
 
   test('returns false when gh-issues namespace is missing from frontmatter', () => {
     const fm: IssueFrontmatter = {};
-    assert.strictEqual(issueMatchesFilter(fm, makeFilters({ state: 'open' })), false);
+    assert.strictEqual(matchesFilter(fm, makeFilters({ state: 'open' })), false);
   });
 });
 
@@ -379,6 +379,36 @@ suite('fileManager – findFileByIssueNumberInFrontmatter', () => {
 
     // Assert
     assert.strictEqual(result, null);
+  });
+
+  test('disambiguates same issue number across repos using repository parameter', async () => {
+    // Arrange
+    const fileA = path.join(tmpDir, '42-from-repo-a.md');
+    const fileB = path.join(tmpDir, '42-from-repo-b.md');
+    const fmA: IssueFrontmatter = { 'gh-issues': { number: 42, title: 'A', state: 'open', labels: [], assignees: [], repository: 'owner/repo-a' } };
+    const fmB: IssueFrontmatter = { 'gh-issues': { number: 42, title: 'B', state: 'open', labels: [], assignees: [], repository: 'owner/repo-b' } };
+    await writeIssueFile(fileA, fmA, 'body A');
+    await writeIssueFile(fileB, fmB, 'body B');
+
+    // Act
+    const resultA = await findFileByIssueNumberInFrontmatter(tmpDir, 42, 'owner/repo-a');
+    const resultB = await findFileByIssueNumberInFrontmatter(tmpDir, 42, 'owner/repo-b');
+
+    // Assert
+    assert.strictEqual(resultA, fileA);
+    assert.strictEqual(resultB, fileB);
+  });
+
+  test('returns first match when repository is not specified (backwards compat)', async () => {
+    // Arrange
+    const file = path.join(tmpDir, '7-issue.md');
+    await writeIssueFile(file, makeFrontmatter(7), 'body');
+
+    // Act
+    const result = await findFileByIssueNumberInFrontmatter(tmpDir, 7, undefined);
+
+    // Assert
+    assert.strictEqual(result, file);
   });
 });
 

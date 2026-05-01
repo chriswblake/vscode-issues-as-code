@@ -1,49 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-export interface GhIssuesFilters {
-  repository: string;
-  state?: string;
-  assignee?: string;
-  author?: string;
-  label?: string | string[];
-  created_at?: string;
-  [key: string]: unknown;
-}
-
-export interface GhIssuesConfig {
-  limit?: number;
-  filters: GhIssuesFilters;
-}
-
-export interface GhProjectsFilters {
-  projectId: string;
-  state?: string;
-  [key: string]: unknown;
-}
-
-export interface GhProjectsConfig {
-  filters: GhProjectsFilters;
-}
-
-export interface TickTickFilters {
-  list?: string;
-  state?: string;
-  [key: string]: unknown;
-}
-
-export interface TickTickConfig {
-  filters: TickTickFilters;
-}
-
 export interface SyncTarget {
   /** Absolute path to the folder where synced files for this target are stored. */
   filesDir: string;
   /** Template for file names. Uses tokens like {gh-issues.number} and {gh-issues.title}. */
   naming?: string;
-  'gh-issues'?: GhIssuesConfig;
-  'gh-projects'?: GhProjectsConfig;
-  'tick-tick'?: TickTickConfig;
+  /** Plugin configurations keyed by plugin ID. */
+  [pluginId: string]: unknown;
 }
 
 export interface RepoInfo {
@@ -83,51 +47,6 @@ function resolveSyncTargets(rawTargets: SyncTarget[], workspaceFolderPath: strin
     ...t,
     filesDir: resolveWorkspacePath(t.filesDir, workspaceFolderPath),
   }));
-}
-
-/**
- * Replaces `{today-Nd}` tokens with ISO date strings (YYYY-MM-DD).
- * Example: "closed:>{today-10d}" → "closed:>2026-04-12"
- */
-export function resolveQuery(query: string): string {
-  return query.replace(/\{today-(\d+)d\}/g, (_, n) => {
-    const d = new Date();
-    d.setDate(d.getDate() - parseInt(n, 10));
-    return d.toISOString().slice(0, 10);
-  });
-}
-
-/**
- * Builds a GitHub Issues search query string from a GhIssuesFilters object.
- * Excludes the `repository` field (handled separately by the client).
- */
-export function buildGhIssuesQuery(filters: GhIssuesFilters): string {
-  const parts: string[] = ['is:issue'];
-
-  if (filters.state) {
-    parts.push(`state:${filters.state}`);
-  }
-
-  if (filters.label) {
-    const labels = Array.isArray(filters.label) ? filters.label : [filters.label];
-    for (const label of labels) {
-      parts.push(`label:${label}`);
-    }
-  }
-
-  if (filters.assignee) {
-    parts.push(`assignee:${filters.assignee}`);
-  }
-
-  if (filters.author) {
-    parts.push(`author:${filters.author}`);
-  }
-
-  if (filters.created_at) {
-    parts.push(`created:${resolveQuery(String(filters.created_at))}`);
-  }
-
-  return parts.join(' ');
 }
 
 /**
@@ -204,7 +123,7 @@ export function defaultSyncTargets(owner: string, repo: string, workspaceFolderP
       filesDir: path.join(issuesBase, 'closed_10days'),
       naming: '{gh-issues.number}-{gh-issues.title}',
       'gh-issues': {
-        filters: { repository, created_at: '>{today-10d}' },
+        filters: { repository, state: 'closed', created_at: '>{today-10d}' },
       },
     },
   ];
@@ -215,7 +134,8 @@ export function defaultSyncTargets(owner: string, repo: string, workspaceFolderP
  * Returns null if the field is missing or cannot be parsed.
  */
 export function repoInfoFromTarget(target: SyncTarget): RepoInfo | null {
-  const repository = target['gh-issues']?.filters?.repository;
+  const ghIssues = target['gh-issues'] as { filters?: { repository?: string } } | undefined;
+  const repository = ghIssues?.filters?.repository;
   if (!repository) {
     return null;
   }

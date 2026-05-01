@@ -2,7 +2,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import matter from 'gray-matter';
 import type { IssueData } from './githubClient';
-import type { GhIssuesFilters } from './configManager';
 
 export interface GhIssuesFrontmatter {
   number?: number;
@@ -10,12 +9,15 @@ export interface GhIssuesFrontmatter {
   state: 'open' | 'closed';
   labels: string[];
   assignees: string[];
+  node_id?: string;
+  repository?: string;
 }
 
 export interface IssueFrontmatter {
   'gh-issues'?: GhIssuesFrontmatter;
   'gh-projects'?: Record<string, unknown>;
   'tick-tick'?: Record<string, unknown>;
+  [pluginId: string]: unknown;
 }
 
 /** Reads and parses a Markdown issue file into frontmatter + body. */
@@ -32,6 +34,8 @@ export async function readIssueFile(filePath: string): Promise<{ frontmatter: Is
       state: rawGhIssues['state'] === 'closed' ? 'closed' : 'open',
       labels: Array.isArray(rawGhIssues['labels']) ? rawGhIssues['labels'].map(String) : [],
       assignees: Array.isArray(rawGhIssues['assignees']) ? rawGhIssues['assignees'].map(String) : [],
+      node_id: typeof rawGhIssues['node_id'] === 'string' ? rawGhIssues['node_id'] : undefined,
+      repository: typeof rawGhIssues['repository'] === 'string' ? rawGhIssues['repository'] : undefined,
     };
   }
 
@@ -147,9 +151,13 @@ export async function findFileByNumber(location: string, issueNumber: number, te
 /**
  * Fallback scan when the fileNaming template may have changed.
  * Reads the frontmatter of every .md file in the directory and returns the
- * first whose `gh-issues.number` field matches issueNumber.
+ * first whose `gh-issues.number` and `gh-issues.repository` fields match.
  */
-export async function findFileByIssueNumberInFrontmatter(location: string, issueNumber: number): Promise<string | null> {
+export async function findFileByIssueNumberInFrontmatter(
+  location: string, //
+  issueNumber: number,
+  repository?: string,
+): Promise<string | null> {
   let files: string[];
   try {
     files = await fs.promises.readdir(location);
@@ -165,6 +173,10 @@ export async function findFileByIssueNumberInFrontmatter(location: string, issue
     try {
       const { frontmatter } = await readIssueFile(filePath);
       if (frontmatter['gh-issues']?.number === issueNumber) {
+        // If repository is specified, also match on repository
+        if (repository && frontmatter['gh-issues']?.repository !== repository) {
+          continue;
+        }
         return filePath;
       }
     } catch {
@@ -174,46 +186,4 @@ export async function findFileByIssueNumberInFrontmatter(location: string, issue
   return null;
 }
 
-/**
- * Evaluates a set of GhIssuesFilters against an issue's frontmatter.
- * Checks: state, label, assignee.
- * Filters that cannot be evaluated client-side (e.g. created_at) are skipped.
- * Unknown keys are treated as matching (return true).
- */
-export function issueMatchesFilter(frontmatter: IssueFrontmatter, filters: GhIssuesFilters, syncedAt?: string, closedAt?: string | null): boolean {
-  const ghIssues = frontmatter['gh-issues'];
-  if (!ghIssues) {
-    return false;
-  }
 
-  if (filters.state && ghIssues.state !== filters.state) {
-    return false;
-  }
-
-  if (filters.label) {
-    const labels = Array.isArray(filters.label) ? filters.label : [filters.label];
-    if (!labels.every((l) => ghIssues.labels.includes(l))) {
-      return false;
-    }
-  }
-
-  if (filters.assignee && !ghIssues.assignees.includes(filters.assignee)) {
-    return false;
-  }
-
-  if (filters['updated_at']) {
-    const dateStr = String(filters['updated_at']).replace(/^>/, '');
-    if (!syncedAt || new Date(syncedAt) <= new Date(dateStr)) {
-      return false;
-    }
-  }
-
-  if (filters['closed_at']) {
-    const dateStr = String(filters['closed_at']).replace(/^>/, '');
-    if (!closedAt || new Date(closedAt) <= new Date(dateStr)) {
-      return false;
-    }
-  }
-
-  return true;
-}

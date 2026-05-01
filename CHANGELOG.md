@@ -4,14 +4,30 @@
 
 ### Changed
 
-- **Plugin-style architecture**: `issuesAsCode.syncTargets` setting now uses `filesDir`, `naming`, and plugin configuration objects (`gh-issues`, `gh-projects`, `tick-tick`) instead of flat `repository_url` / `query` / `location` fields.
-- **New sync-state format**: `sync-state.json` replaced by `sync-state.yml`. The new YAML format organises data by plugin section (`gh-issues`, `gh-projects`, `tick-tick`) and cross-references them from a `files` section. Existing `sync-state.json` (v1/v2) files are automatically migrated on load.
-- **Namespaced frontmatter**: Task file front-matter now uses plugin namespaces (`gh-issues`, `gh-projects`, `tick-tick`) instead of flat fields.
-- **Search API for discovery, REST API for updates**: `pullTarget` now uses the GitHub Issues Search API (`searchIssueNumbers`) to discover matching issues, then calls the REST API (`getIssue`) individually per issue. Removed the combined `listIssues` method from `GitHubClient`.
-- **File naming tokens**: Default naming template updated to `{gh-issues.number}-{gh-issues.title}`. Legacy `{issue-num}` and `{issue-title}` tokens are still supported for backwards compatibility.
-- `issuesAsCode.syncStatePath` default changed from `sync-state.json` to `sync-state.yml`.
-- Removed `{workspaceDir}` path placeholder support. Relative `filesDir` and `syncStatePath` values now resolve from the current workspace folder automatically.
-- Added `buildGhIssuesQuery` and `parseOwnerRepo` helpers exported from `configManager`.
+- **Plugin architecture refactor**: Sync logic is now decoupled from specific services via a plugin system. Each remote service (GitHub Issues, GitHub Projects, TickTick) is implemented as an isolated plugin under `src/plugins/`.
+- **New plugin types**: `PrimarySyncPlugin` (owns file body and creation — e.g. gh-issues) and `MetadataPlugin` (enriches frontmatter — e.g. gh-projects) replace the previous monolithic approach.
+- **SyncManager is now generic**: No longer contains GitHub-specific logic. Delegates pull/push operations to the configured plugin. Conflict markers say "Remote" instead of "GitHub".
+- **GitHubClient is repo-free**: Methods accept owner/repo as parameters, enabling cross-repository operations.
+- **configManager cleaned up**: Plugin-specific types and query builders moved into their respective plugin files. Generic `SyncTarget` interface uses an index signature for plugin configs.
+- **New file behavior**: New files created in sync target folders are no longer auto-pushed. A CodeLens "Publish" button appears instead, giving users explicit control.
+- **Cross-repo safety**: File lookup uses full `owner/repo/number` keys to prevent collisions when multiple repositories share issue numbers.
+
+### Added
+
+- **Command: "Issues as Code: Add setting - My issues on GitHub"** — Adds a cross-repo sync target for ALL issues assigned to the authenticated user across GitHub.
+- **Command: "Issues as Code: Add setting - My issues on this repository"** — Adds a sync target for the authenticated user's open issues on the detected workspace repository.
+- **Command: "Issues as Code: Publish to Remote"** — Explicitly publishes a local file to the configured remote service.
+- **CodeLens provider**: Shows a "▶ Publish to [service]" button on unpublished markdown files inside sync target folders.
+- **Plugin files**: `src/plugins/ghIssuesPlugin.ts`, `src/plugins/ghProjectsPlugin.ts`, `src/plugins/tickTickPlugin.ts`, `src/plugins/syncPlugin.ts`.
+
+### Removed
+
+- `src/projectsSync.ts` — Replaced by `src/plugins/ghProjectsPlugin.ts`.
+- `issueMatchesFilter` removed from `fileManager.ts` — Now lives in the gh-issues plugin as `matchesFilter`.
+- `inferNewIssueTitle` removed from `syncManager.ts` — Now handled by `GhIssuesPlugin.inferTitle`.
+- Dead `limit` config option removed from package.json schema.
+
+## [0.1.0] - 2026-04-22
 
 ## [0.1.0] - 2026-04-22
 

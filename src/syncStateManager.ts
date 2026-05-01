@@ -249,6 +249,17 @@ export class SyncStateManager {
     return Object.keys(this.state.files);
   }
 
+  /** Finds the file path for a given plugin key (e.g. "owner/repo/42" for gh-issues). */
+  findFileByPluginKey(pluginId: string, key: string): string | undefined {
+    for (const [filePath, entry] of Object.entries(this.state.files)) {
+      const ref = entry[pluginId as keyof SyncStateEntry] as FilePluginRef | undefined;
+      if (ref?.key === key) {
+        return filePath;
+      }
+    }
+    return undefined;
+  }
+
   private async save(): Promise<void> {
     await fs.promises.mkdir(path.dirname(this.statePath), { recursive: true });
     await fs.promises.writeFile(
