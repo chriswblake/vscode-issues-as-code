@@ -26,6 +26,7 @@ function vscode(): typeof vscodeType {
 
 export class SyncManager {
   private suppressedUris = new Map<string, number>();
+  private extensionWriteMtimeMs = new Map<string, number>();
   private debounceTimers = new Map<string, NodeJS.Timeout>();
   private pullTimer: NodeJS.Timeout | null = null;
   private watcher: vscodeType.FileSystemWatcher | null = null;
@@ -95,6 +96,7 @@ export class SyncManager {
       clearTimeout(timer);
     }
     this.debounceTimers.clear();
+    this.extensionWriteMtimeMs.clear();
   }
 
   /** Pull all issues from GitHub for this target. */
@@ -330,6 +332,7 @@ export class SyncManager {
     this.suppress(localPath, 1);
     try {
       await fs.promises.writeFile(localPath, conflictContent, 'utf8');
+      await this.markExtensionWrite(localPath);
       await this.stateManager.setSyncedAt(
         localPath, //
         issueToRemoteInfo(issue),
@@ -343,7 +346,7 @@ export class SyncManager {
 
   /** Handles a newly created .md file in the issues directory. */
   private async handleNewFile(uri: vscodeType.Uri): Promise<void> {
-    if (this.isSuppressed(uri.fsPath)) {
+    if (await this.shouldIgnoreFileEvent(uri.fsPath)) {
       return;
     }
     // Debounce to let the user finish writing
@@ -351,10 +354,53 @@ export class SyncManager {
   }
 
   private onFileChanged(uri: vscodeType.Uri): void {
-    if (this.isSuppressed(uri.fsPath)) {
+    void this.handleChangedFile(uri.fsPath);
+  }
+
+  private async handleChangedFile(filePath: string): Promise<void> {
+    if (await this.shouldIgnoreFileEvent(filePath)) {
       return;
     }
-    this.debouncedPush(uri.fsPath);
+    this.debouncedPush(filePath);
+  }
+
+  private async shouldIgnoreFileEvent(filePath: string): Promise<boolean> {
+    if (this.isSuppressed(filePath)) {
+      return true;
+    }
+
+    const lastExtensionWriteMtimeMs = this.extensionWriteMtimeMs.get(filePath);
+    if (lastExtensionWriteMtimeMs === undefined) {
+      return false;
+    }
+
+    try {
+      const stat = await fs.promises.stat(filePath);
+      if (isExtensionWriteEvent(stat.mtimeMs, lastExtensionWriteMtimeMs)) {
+        return true;
+      }
+    } catch {
+      // File no longer exists. Treat this event as extension-authored and clear stale fence.
+      this.extensionWriteMtimeMs.delete(filePath);
+      return true;
+    }
+
+    // A newer mtime means this is likely a real user edit; clear fence and allow push.
+    this.extensionWriteMtimeMs.delete(filePath);
+    return false;
+  }
+
+  /**
+   * Records the mtime after an extension-authored write.
+   * This allows delayed watcher events for the same write to be ignored.
+   */
+  private async markExtensionWrite(filePath: string): Promise<void> {
+    try {
+      const stat = await fs.promises.stat(filePath);
+      this.extensionWriteMtimeMs.set(filePath, stat.mtimeMs);
+    } catch {
+      // Ignore if file cannot be stat'ed (e.g. deleted immediately after write).
+    }
   }
 
   /** Writes an issue file while suppressing watcher events for it. */
@@ -371,6 +417,7 @@ export class SyncManager {
         },
       };
       await writeIssueFile(filePath, frontmatter, overrideBody ?? issue.body ?? '');
+      await this.markExtensionWrite(filePath);
       await this.stateManager.setSyncedAt(
         filePath, //
         issueToRemoteInfo(issue),
@@ -434,6 +481,15 @@ export function isConflict(cloudUpdatedAt: string, syncedAt: string | undefined)
     return false;
   }
   return new Date(cloudUpdatedAt) > new Date(syncedAt);
+}
+
+/**
+ * Returns true when a file event still points at the same mtime as an
+ * extension-authored write (allowing small filesystem timestamp jitter).
+ */
+export function isExtensionWriteEvent(eventMtimeMs: number, lastExtensionWriteMtimeMs: number): boolean {
+  const MTIME_JITTER_MS = 1;
+  return eventMtimeMs <= lastExtensionWriteMtimeMs + MTIME_JITTER_MS;
 }
 
 // Diff helpers
@@ -657,4 +713,3 @@ async function deleteTargetFiles(
 
   await stateManager.removeFilesUnderLocation(oldTarget.filesDir);
 }
-

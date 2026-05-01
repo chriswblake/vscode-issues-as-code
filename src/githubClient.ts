@@ -1,5 +1,7 @@
 import { Octokit } from '@octokit/rest';
 
+const GITHUB_API_VERSION = '2022-11-28';
+
 export interface IssueData {
   number: number;
   title: string;
@@ -21,7 +23,14 @@ export class GitHubClient {
     private readonly owner: string,
     private readonly repo: string,
   ) {
-    this.octokit = new Octokit({ auth: accessToken });
+    this.octokit = new Octokit({
+      auth: accessToken,
+      request: {
+        headers: {
+          'X-GitHub-Api-Version': GITHUB_API_VERSION,
+        },
+      },
+    });
   }
 
   /**

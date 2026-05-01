@@ -10,6 +10,7 @@
 - **Search API for discovery, REST API for updates**: `pullTarget` now uses the GitHub Issues Search API (`searchIssueNumbers`) to discover matching issues, then calls the REST API (`getIssue`) individually per issue. Removed the combined `listIssues` method from `GitHubClient`.
 - **File naming tokens**: Default naming template updated to `{gh-issues.number}-{gh-issues.title}`. Legacy `{issue-num}` and `{issue-title}` tokens are still supported for backwards compatibility.
 - `issuesAsCode.syncStatePath` default changed from `sync-state.json` to `sync-state.yml`.
+- Removed `{workspaceDir}` path placeholder support. Relative `filesDir` and `syncStatePath` values now resolve from the current workspace folder automatically.
 - Added `buildGhIssuesQuery` and `parseOwnerRepo` helpers exported from `configManager`.
 
 ## [0.1.0] - 2026-04-22

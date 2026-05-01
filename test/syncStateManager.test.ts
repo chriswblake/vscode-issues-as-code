@@ -117,6 +117,7 @@ suite('syncStateManager – load', () => {
     // Assert
     assert.strictEqual(manager.getSyncedAt('/issues/open/7-thing.md'), '2024-07-01T00:00:00Z');
   });
+
 });
 
 // ---------------------------------------------------------------------------

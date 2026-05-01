@@ -60,7 +60,7 @@
             "properties": {
               "filesDir": {
                 "type": "string",
-                "description": "Local folder path where synced files are stored. Use {workspaceDir} as a placeholder for the workspace root."
+                "description": "Local folder path where synced files are stored. Must be relative to the current workspace folder; absolute paths are not allowed."
               },
               "naming": {
                 "type": "string",
@@ -161,8 +161,8 @@
         },
         "issuesAsCode.syncStatePath": {
           "type": "string",
-          "default": "{workspaceDir}/.issues/sync-state.yml",
-          "description": "Path to the local sync state file that tracks the last-synced timestamp per issue. Defaults to .issues/sync-state.yml in the workspace. Use {workspaceDir} as a placeholder for the workspace root. This file is machine-local and should be gitignored.",
+          "default": ".issues/sync-state.yml",
+          "description": "Path to the local sync state file that tracks the last-synced timestamp per issue. Must be relative to the current workspace folder; absolute paths are not allowed. This file is machine-local and should be gitignored.",
           "scope": "resource"
         },
         "issuesAsCode.showSyncState": {

@@ -89,7 +89,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       const repository = `${repoInfo.owner}/${repoInfo.repo}`;
       const openIssuesTarget: SyncTarget = {
-        filesDir: '{workspaceDir}/.issues/open',
+        filesDir: '.issues/open',
         naming: '{gh-issues.number}-{gh-issues.title}',
         'gh-issues': {
           filters: { repository, state: 'open' },

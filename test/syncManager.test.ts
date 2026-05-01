@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { isConflict, inferNewIssueTitle, classifyDiff, generateConflictContent, hasConflictMarkers, reconcileTargetChanges } from '../src/syncManager';
+import { isConflict, isExtensionWriteEvent, inferNewIssueTitle, classifyDiff, generateConflictContent, hasConflictMarkers, reconcileTargetChanges } from '../src/syncManager';
 import { SyncStateManager, type RemoteIssueInfo } from '../src/syncStateManager';
 
 // ---------------------------------------------------------------------------
@@ -131,6 +131,20 @@ suite('syncManager – conflict detection', () => {
 
   test('handles ISO 8601 strings with milliseconds', () => {
     assert.strictEqual(isConflict('2026-04-22T10:00:00.500Z', '2026-04-22T10:00:00.000Z'), true);
+  });
+});
+
+suite('syncManager – extension write event fence', () => {
+  test('returns true for identical mtime', () => {
+    assert.strictEqual(isExtensionWriteEvent(1000, 1000), true);
+  });
+
+  test('returns true for tiny timestamp jitter', () => {
+    assert.strictEqual(isExtensionWriteEvent(1001, 1000), true);
+  });
+
+  test('returns false when file is newer than extension write', () => {
+    assert.strictEqual(isExtensionWriteEvent(1002, 1000), false);
   });
 });
 

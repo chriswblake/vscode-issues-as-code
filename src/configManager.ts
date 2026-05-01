@@ -68,6 +68,23 @@ export interface IssueConfig {
   enableExperimentalProjects: boolean;
 }
 
+const DEFAULT_SYNC_STATE_PATH = '.issues/sync-state.yml';
+
+export function resolveWorkspacePath(rawPath: string, workspaceFolderPath: string): string {
+  if (path.isAbsolute(rawPath)) {
+    throw new Error('Absolute paths are not allowed in issuesAsCode configuration. Use a path relative to the workspace folder.');
+  }
+
+  return path.resolve(workspaceFolderPath, rawPath);
+}
+
+function resolveSyncTargets(rawTargets: SyncTarget[], workspaceFolderPath: string): SyncTarget[] {
+  return rawTargets.map((t) => ({
+    ...t,
+    filesDir: resolveWorkspacePath(t.filesDir, workspaceFolderPath),
+  }));
+}
+
 /**
  * Replaces `{today-Nd}` tokens with ISO date strings (YYYY-MM-DD).
  * Example: "closed:>{today-10d}" → "closed:>2026-04-12"
@@ -118,6 +135,7 @@ export function buildGhIssuesQuery(filters: GhIssuesFilters): string {
  * Accepts explicit values for testability.
  */
 export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: unknown): IssueConfig {
+
   // When running in VS Code context, read from workspace configuration
   if (vscodeWorkspaceFolder !== undefined) {
     // Dynamic import to avoid hard dependency on vscode in unit tests
@@ -128,13 +146,10 @@ export function getConfig(workspaceFolderPath: string, vscodeWorkspaceFolder?: u
       const cfg = vscode.workspace.getConfiguration('issuesAsCode', uri);
 
       const rawTargets = cfg.get<SyncTarget[]>('syncTargets') ?? [];
-      const syncTargets = rawTargets.map((t) => ({
-        ...t,
-        filesDir: t.filesDir.replace('{workspaceDir}', workspaceFolderPath),
-      }));
+      const syncTargets = resolveSyncTargets(rawTargets, workspaceFolderPath);
 
-      const rawSyncStatePath = cfg.get<string>('syncStatePath') ?? '{workspaceDir}/.issues/sync-state.yml';
-      const syncStatePath = rawSyncStatePath.replace('{workspaceDir}', workspaceFolderPath);
+      const rawSyncStatePath = cfg.get<string>('syncStatePath') ?? DEFAULT_SYNC_STATE_PATH;
+      const syncStatePath = resolveWorkspacePath(rawSyncStatePath, workspaceFolderPath);
 
       const rawShowSyncIcons = cfg.get<Partial<ShowSyncIconsConfig>>('showSyncIcons') ?? {};
 

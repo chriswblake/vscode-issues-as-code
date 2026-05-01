@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { resolveQuery, buildGhIssuesQuery, getConfig, defaultSyncTargets, repoInfoFromTarget, parseOwnerRepo, ensureGitignore } from '../src/configManager';
+import { resolveQuery, buildGhIssuesQuery, getConfig, defaultSyncTargets, repoInfoFromTarget, parseOwnerRepo, ensureGitignore, resolveWorkspacePath } from '../src/configManager';
 
 // ---------------------------------------------------------------------------
 // Section 1: resolveQuery – basic {today-Nd} substitution
@@ -163,6 +163,20 @@ suite('configManager – getConfig defaults', () => {
     const config = getConfig('/workspace');
     assert.ok(config.syncStatePath.endsWith('sync-state.yml'));
   });
+
+  test('resolveWorkspacePath resolves relative paths from the workspace root', () => {
+    const resolvedPath = resolveWorkspacePath('.issues/open', '/workspace');
+
+    assert.strictEqual(resolvedPath, path.join('/workspace', '.issues', 'open'));
+  });
+
+  test('resolveWorkspacePath rejects absolute paths', () => {
+    assert.throws(
+      () => resolveWorkspacePath('/tmp/issues/open', '/workspace'),
+      /Absolute paths are not allowed/,
+    );
+  });
+
 });
 
 // ---------------------------------------------------------------------------
@@ -191,7 +205,7 @@ suite('configManager – defaultSyncTargets', () => {
     assert.ok(targets[1]['gh-issues']?.filters.created_at?.includes('{today-10d}') || targets[1]['gh-issues']?.filters.created_at?.includes('{today-'));
   });
 
-  test('filesDir values are under {workspaceDir}/.issues', () => {
+  test('filesDir values are under the workspace .issues directory', () => {
     const targets = defaultSyncTargets('myorg', 'myrepo', '/workspace');
     for (const t of targets) {
       assert.ok(t.filesDir.startsWith(path.join('/workspace', '.issues')));
@@ -342,4 +356,3 @@ suite('configManager – ensureGitignore', () => {
     }
   });
 });
-
