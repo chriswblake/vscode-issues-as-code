@@ -4,6 +4,7 @@ node_modules/
 .vscode-test/
 .issues/
 .agents/**
+.issues/**
 
 
 #######
