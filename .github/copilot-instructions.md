@@ -39,7 +39,7 @@ Example:
 function add(a, b) {
   return a + b;
 }
-test('add: 2 positive integers', () => {
+test("add: 2 positive integers", () => {
   // Verifies that basic math operations work as expected.
 
   // Arrange

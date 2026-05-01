@@ -38,8 +38,8 @@ Synchronize GitHub issues to a local `.issues/` folder — edit them as Markdown
 
 All settings have `"scope": "resource"` so they can be set per workspace folder.
 
-| Setting                     | Type      | Default                                                  | Description                                                   |
-| --------------------------- | --------- | -------------------------------------------------------- | ------------------------------------------------------------- |
+| Setting                        | Type      | Default                                                  | Description                                                   |
+| ------------------------------ | --------- | -------------------------------------------------------- | ------------------------------------------------------------- |
 | `issuesAsCode.fileNaming`      | `string`  | `{issue-num}-{issue-title}`                              | Template for issue file names                                 |
 | `issuesAsCode.pushOnSaveDelay` | `number`  | `60`                                                     | Seconds to wait after last save before pushing                |
 | `issuesAsCode.syncTargets`     | `array`   | `[]`                                                     | Repositories and queries to sync (see below)                  |

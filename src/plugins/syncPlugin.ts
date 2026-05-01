@@ -1,5 +1,9 @@
-import type { IssueFrontmatter } from '../fileManager';
-import type { SyncStateManager, SyncStateEntry, RemoteIssueInfo } from '../syncStateManager';
+import type { IssueFrontmatter } from "../fileManager";
+import type {
+  SyncStateManager,
+  SyncStateEntry,
+  RemoteIssueInfo,
+} from "../syncStateManager";
 
 // ---------------------------------------------------------------------------
 // Plugin result types
@@ -64,7 +68,10 @@ export interface PrimarySyncPlugin {
    * Discovers and fetches remote items matching the target's plugin config.
    * Returns one PullItem per remote task/issue.
    */
-  pull(pluginConfig: Record<string, unknown>, context: PluginContext): Promise<PullItem[]>;
+  pull(
+    pluginConfig: Record<string, unknown>,
+    context: PluginContext,
+  ): Promise<PullItem[]>;
 
   /**
    * Pushes a local file's content to the remote service.
@@ -83,19 +90,29 @@ export interface PrimarySyncPlugin {
    * Renders a filename from the naming template and remote data tokens.
    * Handles slug generation and character sanitization.
    */
-  buildFileName(namingTokens: Record<string, string | number>, template: string): string;
+  buildFileName(
+    namingTokens: Record<string, string | number>,
+    template: string,
+  ): string;
 
   /**
    * Returns the plugin-specific numeric/string ID, indicating the file is published.
    * Checks the state entry first (preferred), falls back to frontmatter for legacy files.
    */
-  getRemoteId(frontmatter: IssueFrontmatter, stateEntry?: SyncStateEntry): number | string | undefined;
+  getRemoteId(
+    frontmatter: IssueFrontmatter,
+    stateEntry?: SyncStateEntry,
+  ): number | string | undefined;
 
   /**
    * Returns the unique remote key for a file (e.g. "owner/repo/42").
    * Checks the state entry first, falls back to frontmatter + config.
    */
-  getRemoteKey(frontmatter: IssueFrontmatter, pluginConfig: Record<string, unknown>, stateEntry?: SyncStateEntry): string | undefined;
+  getRemoteKey(
+    frontmatter: IssueFrontmatter,
+    pluginConfig: Record<string, unknown>,
+    stateEntry?: SyncStateEntry,
+  ): string | undefined;
 
   /**
    * Finds an existing local file matching a remote item by name/frontmatter heuristic.
@@ -112,7 +129,11 @@ export interface PrimarySyncPlugin {
    * Infers a title for a new file that has no explicit title in frontmatter.
    * Used when creating a new remote item from a local file.
    */
-  inferTitle(filePath: string, frontmatter: IssueFrontmatter, body: string): string;
+  inferTitle(
+    filePath: string,
+    frontmatter: IssueFrontmatter,
+    body: string,
+  ): string;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,7 +195,9 @@ export interface PluginBootstrap {
    * Attempt to detect default sync targets for a workspace folder.
    * Returns null if this plugin cannot provide defaults for the folder.
    */
-  detectDefaults(workspaceFolder: { uri: { fsPath: string } }): Promise<import('../configManager').SyncTarget[] | null>;
+  detectDefaults(workspaceFolder: {
+    uri: { fsPath: string };
+  }): Promise<import("../configManager").SyncTarget[] | null>;
 }
 
 // ---------------------------------------------------------------------------

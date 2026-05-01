@@ -1,48 +1,62 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import type * as vscodeType from 'vscode';
-import type { ShowSyncIconsConfig } from './configManager';
-import type { SyncStateManager } from './syncStateManager';
+import * as fs from "fs";
+import * as path from "path";
+import type * as vscodeType from "vscode";
+import type { ShowSyncIconsConfig } from "./configManager";
+import type { SyncStateManager } from "./syncStateManager";
 
 // Lazy vscode import so unit tests can run without a VS Code instance
 function vscode(): typeof vscodeType {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('vscode');
+  return require("vscode");
 }
 
-export type SyncStatus = 'new' | 'modified' | 'synchronized';
+export type SyncStatus = "new" | "modified" | "synchronized" | "readOnly";
 
 // Decoration definitions per status
-const DECORATIONS: Record<SyncStatus, { badge: string; tooltip: string; colorId?: string }> = {
+const DECORATIONS: Record<
+  SyncStatus,
+  { badge: string; tooltip: string; colorId?: string }
+> = {
   new: {
-    badge: 'A',
-    tooltip: 'New Issue: Not pushed to remote yet',
-    colorId: 'gitDecoration.addedResourceForeground',
+    badge: "A",
+    tooltip: "New Issue: Not pushed to remote yet",
+    colorId: "gitDecoration.addedResourceForeground",
   },
   modified: {
-    badge: 'M',
-    tooltip: 'Modified: Locally modified but not pushed to remote yet',
-    colorId: 'gitDecoration.modifiedResourceForeground',
+    badge: "M",
+    tooltip: "Modified: Locally modified but not pushed to remote yet",
+    colorId: "gitDecoration.modifiedResourceForeground",
   },
   synchronized: {
-    badge: '✓',
-    tooltip: 'Synchronized: Local issue matches remote issue',
+    badge: "✓",
+    tooltip: "Synchronized: Local issue matches remote issue",
+  },
+  readOnly: {
+    badge: "🔏",
+    tooltip: "Read-Only: Managed by remote; local changes are not pushed",
   },
 };
 
 interface ManagedLocation {
   location: string;
   stateManager: SyncStateManager;
+  readOnly?: boolean;
 }
 
 /**
  * Provides file decorations (badge + tooltip) for issue files in the Explorer,
  * reflecting their sync status relative to GitHub.
  */
-export class IssueDecorationProvider implements vscodeType.FileDecorationProvider {
-  private _emitter: vscodeType.EventEmitter<vscodeType.Uri | vscodeType.Uri[] | undefined> | undefined;
+export class IssueDecorationProvider
+  implements vscodeType.FileDecorationProvider
+{
+  private _emitter:
+    | vscodeType.EventEmitter<vscodeType.Uri | vscodeType.Uri[] | undefined>
+    | undefined;
 
-  private getEmitter(): vscodeType.EventEmitter<vscodeType.Uri | vscodeType.Uri[] | undefined> | undefined {
+  private getEmitter():
+    | vscodeType.EventEmitter<vscodeType.Uri | vscodeType.Uri[] | undefined>
+    | undefined {
     if (!this._emitter) {
       try {
         this._emitter = new (vscode().EventEmitter)();
@@ -54,7 +68,9 @@ export class IssueDecorationProvider implements vscodeType.FileDecorationProvide
     return this._emitter;
   }
 
-  readonly onDidChangeFileDecorations: vscodeType.Event<vscodeType.Uri | vscodeType.Uri[] | undefined> = (listener, thisArgs, disposables) => {
+  readonly onDidChangeFileDecorations: vscodeType.Event<
+    vscodeType.Uri | vscodeType.Uri[] | undefined
+  > = (listener, thisArgs, disposables) => {
     const emitter = this.getEmitter();
     if (emitter) {
       return emitter.event(listener, thisArgs, disposables);
@@ -63,11 +79,18 @@ export class IssueDecorationProvider implements vscodeType.FileDecorationProvide
   };
 
   private managedLocations: ManagedLocation[] = [];
-  private showSyncIcons: ShowSyncIconsConfig = { newIssue: true, modified: true, synchronized: true };
+  private showSyncIcons: ShowSyncIconsConfig = {
+    newIssue: true,
+    modified: true,
+    synchronized: true,
+  };
   private dirtyFiles = new Set<string>();
 
   /** Replace all managed locations and config; refresh all decorations. */
-  update(locations: ManagedLocation[], showSyncIcons: ShowSyncIconsConfig): void {
+  update(
+    locations: ManagedLocation[],
+    showSyncIcons: ShowSyncIconsConfig,
+  ): void {
     this.managedLocations = locations;
     this.showSyncIcons = showSyncIcons;
     this.getEmitter()?.fire(undefined);
@@ -95,10 +118,12 @@ export class IssueDecorationProvider implements vscodeType.FileDecorationProvide
   }
 
   private isManaged(filePath: string): boolean {
-    if (!filePath.endsWith('.md')) {
+    if (!filePath.endsWith(".md")) {
       return false;
     }
-    return this.managedLocations.some(({ location }) => filePath.startsWith(location + path.sep));
+    return this.managedLocations.some(({ location }) =>
+      filePath.startsWith(location + path.sep),
+    );
   }
 
   /** Trigger a decoration refresh for a single file. */
@@ -110,27 +135,35 @@ export class IssueDecorationProvider implements vscodeType.FileDecorationProvide
     }
   }
 
-  provideFileDecoration(uri: vscodeType.Uri): vscodeType.FileDecoration | undefined {
-    if (!uri.fsPath.endsWith('.md')) {
+  provideFileDecoration(
+    uri: vscodeType.Uri,
+  ): vscodeType.FileDecoration | undefined {
+    if (!uri.fsPath.endsWith(".md")) {
       return undefined;
     }
 
     // Only decorate files under a managed location
-    const managed = this.managedLocations.find(({ location }) => uri.fsPath.startsWith(location + path.sep));
+    const managed = this.managedLocations.find(({ location }) =>
+      uri.fsPath.startsWith(location + path.sep),
+    );
     if (!managed) {
       return undefined;
     }
 
-    const status = this.resolveStatus(uri.fsPath, managed.stateManager);
+    const status = this.resolveStatus(
+      uri.fsPath,
+      managed.stateManager,
+      managed.readOnly,
+    );
 
     // Check if the icon for this status is enabled
-    if (status === 'new' && !this.showSyncIcons.newIssue) {
+    if (status === "new" && !this.showSyncIcons.newIssue) {
       return undefined;
     }
-    if (status === 'modified' && !this.showSyncIcons.modified) {
+    if (status === "modified" && !this.showSyncIcons.modified) {
       return undefined;
     }
-    if (status === 'synchronized' && !this.showSyncIcons.synchronized) {
+    if (status === "synchronized" && !this.showSyncIcons.synchronized) {
       return undefined;
     }
 
@@ -150,17 +183,26 @@ export class IssueDecorationProvider implements vscodeType.FileDecorationProvide
     };
   }
 
-  private resolveStatus(filePath: string, stateManager: SyncStateManager): SyncStatus {
+  private resolveStatus(
+    filePath: string,
+    stateManager: SyncStateManager,
+    readOnly?: boolean,
+  ): SyncStatus {
+    // readOnly files always show the lock icon
+    if (readOnly) {
+      return "readOnly";
+    }
+
     // Unsaved editor changes — show modified immediately, before any disk write
     if (this.dirtyFiles.has(filePath)) {
-      return 'modified';
+      return "modified";
     }
 
     const entry = stateManager.getEntry(filePath);
 
     if (!entry) {
       // No sync state — file not yet pushed to remote
-      return 'new';
+      return "new";
     }
 
     const localWrittenAt = new Date(entry.local_written_at).getTime();
@@ -170,14 +212,14 @@ export class IssueDecorationProvider implements vscodeType.FileDecorationProvide
       fileMtime = fs.statSync(filePath).mtimeMs;
     } catch {
       // File may not exist yet; treat as new
-      return 'new';
+      return "new";
     }
 
     // Allow 1 second tolerance to account for filesystem resolution differences
     if (fileMtime > localWrittenAt + 1000) {
-      return 'modified';
+      return "modified";
     }
 
-    return 'synchronized';
+    return "synchronized";
   }
 }

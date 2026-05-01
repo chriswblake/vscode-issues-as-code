@@ -1,9 +1,14 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import type { IssueFrontmatter } from '../fileManager';
-import type { GitHubClient, IssueData } from './githubClient';
-import type { RemoteIssueInfo, SyncStateEntry } from '../syncStateManager';
-import type { PrimarySyncPlugin, PullItem, PushResult, PluginContext } from './syncPlugin';
+import * as fs from "fs";
+import * as path from "path";
+import type { IssueFrontmatter } from "../fileManager";
+import type { GitHubClient, IssueData } from "./githubClient";
+import type { RemoteIssueInfo, SyncStateEntry } from "../syncStateManager";
+import type {
+  PrimarySyncPlugin,
+  PullItem,
+  PushResult,
+  PluginContext,
+} from "./syncPlugin";
 
 // ---------------------------------------------------------------------------
 // GitHub Issues frontmatter shape (plugin-internal)
@@ -20,7 +25,7 @@ interface GhIssuesFrontmatter {
 
 /** Safely extracts the gh-issues section from generic frontmatter. */
 function getGhSection(frontmatter: IssueFrontmatter): GhIssuesFrontmatter {
-  return (frontmatter['gh-issues'] ?? {}) as GhIssuesFrontmatter;
+  return (frontmatter["gh-issues"] ?? {}) as GhIssuesFrontmatter;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,14 +67,16 @@ export function resolveQueryDateTokens(query: string): string {
  * Excludes the `repository` field (handled separately by the search API).
  */
 export function buildSearchQuery(filters: GhIssuesFilters): string {
-  const parts: string[] = ['is:issue'];
+  const parts: string[] = ["is:issue"];
 
   if (filters.state) {
     parts.push(`state:${filters.state}`);
   }
 
   if (filters.label) {
-    const labels = Array.isArray(filters.label) ? filters.label : [filters.label];
+    const labels = Array.isArray(filters.label)
+      ? filters.label
+      : [filters.label];
     for (const label of labels) {
       parts.push(`label:${label}`);
     }
@@ -87,7 +94,7 @@ export function buildSearchQuery(filters: GhIssuesFilters): string {
     parts.push(`created:${resolveQueryDateTokens(String(filters.created_at))}`);
   }
 
-  return parts.join(' ');
+  return parts.join(" ");
 }
 
 // ---------------------------------------------------------------------------
@@ -103,23 +110,26 @@ export function buildFileName(
   namingTokens: Record<string, string | number>, //
   template: string,
 ): string {
-  const slug = String(namingTokens['gh-issues.title'] ?? '')
+  const slug = String(namingTokens["gh-issues.title"] ?? "")
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/[^a-z0-9\s-]/g, "")
     .trim()
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-');
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
 
   const name = template
-    .replace('{gh-issues.number}', String(namingTokens['gh-issues.number'] ?? ''))
-    .replace('{gh-issues.title}', slug)
-    .replace('{issue-num}', String(namingTokens['gh-issues.number'] ?? ''))
-    .replace('{issue-title}', slug);
+    .replace(
+      "{gh-issues.number}",
+      String(namingTokens["gh-issues.number"] ?? ""),
+    )
+    .replace("{gh-issues.title}", slug)
+    .replace("{issue-num}", String(namingTokens["gh-issues.number"] ?? ""))
+    .replace("{issue-title}", slug);
 
   return name
-    .replace(/[^a-z0-9\-_]/gi, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+    .replace(/[^a-z0-9\-_]/gi, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +147,7 @@ export function matchesFilter(
   closedAt?: string | null,
 ): boolean {
   const ghIssues = getGhSection(frontmatter);
-  if (!frontmatter['gh-issues']) {
+  if (!frontmatter["gh-issues"]) {
     return false;
   }
 
@@ -146,25 +156,30 @@ export function matchesFilter(
   }
 
   if (filters.label) {
-    const labels = Array.isArray(filters.label) ? filters.label : [filters.label];
+    const labels = Array.isArray(filters.label)
+      ? filters.label
+      : [filters.label];
     if (!labels.every((l) => (ghIssues.labels ?? []).includes(l))) {
       return false;
     }
   }
 
-  if (filters.assignee && !(ghIssues.assignees ?? []).includes(filters.assignee)) {
+  if (
+    filters.assignee &&
+    !(ghIssues.assignees ?? []).includes(filters.assignee)
+  ) {
     return false;
   }
 
-  if (filters['updated_at']) {
-    const dateStr = String(filters['updated_at']).replace(/^>/, '');
+  if (filters["updated_at"]) {
+    const dateStr = String(filters["updated_at"]).replace(/^>/, "");
     if (!syncedAt || new Date(syncedAt) <= new Date(dateStr)) {
       return false;
     }
   }
 
-  if (filters['closed_at']) {
-    const dateStr = String(filters['closed_at']).replace(/^>/, '');
+  if (filters["closed_at"]) {
+    const dateStr = String(filters["closed_at"]).replace(/^>/, "");
     if (!closedAt || new Date(closedAt) <= new Date(dateStr)) {
       return false;
     }
@@ -177,7 +192,10 @@ export function matchesFilter(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function issueToRemoteInfo(issue: IssueData, repository?: string): RemoteIssueInfo {
+function issueToRemoteInfo(
+  issue: IssueData,
+  repository?: string,
+): RemoteIssueInfo {
   return {
     number: issue.number,
     state: issue.state,
@@ -189,10 +207,12 @@ function issueToRemoteInfo(issue: IssueData, repository?: string): RemoteIssueIn
   };
 }
 
-function issueToNamingTokens(issue: IssueData): Record<string, string | number> {
+function issueToNamingTokens(
+  issue: IssueData,
+): Record<string, string | number> {
   return {
-    'gh-issues.number': issue.number,
-    'gh-issues.title': issue.title,
+    "gh-issues.number": issue.number,
+    "gh-issues.title": issue.title,
   };
 }
 
@@ -206,7 +226,7 @@ function issueToPullItem(issue: IssueData, repository: string): PullItem {
       labels: issue.labels,
       assignees: issue.assignees,
     },
-    body: issue.body ?? '',
+    body: issue.body ?? "",
     remoteInfo: issueToRemoteInfo(issue, repository),
   };
 }
@@ -215,9 +235,13 @@ function issueToPullItem(issue: IssueData, repository: string): PullItem {
  * Derives a title for new local issue files when frontmatter title is missing.
  * Priority: explicit title → first non-empty body line → file name.
  */
-function inferTitle(filePath: string, frontmatter: IssueFrontmatter, body: string): string {
+function inferTitle(
+  filePath: string,
+  frontmatter: IssueFrontmatter,
+  body: string,
+): string {
   const ghIssues = getGhSection(frontmatter);
-  const explicit = (ghIssues.title ?? '').trim();
+  const explicit = (ghIssues.title ?? "").trim();
   if (explicit) {
     return explicit;
   }
@@ -227,13 +251,13 @@ function inferTitle(filePath: string, frontmatter: IssueFrontmatter, body: strin
     .map((line) => line.trim())
     .find((line) => line.length > 0);
   if (bodyLine) {
-    const cleaned = bodyLine.replace(/^#+\s*/, '').trim();
+    const cleaned = bodyLine.replace(/^#+\s*/, "").trim();
     if (cleaned) {
       return cleaned;
     }
   }
 
-  return path.basename(filePath, path.extname(filePath)).trim() || 'New issue';
+  return path.basename(filePath, path.extname(filePath)).trim() || "New issue";
 }
 
 // ---------------------------------------------------------------------------
@@ -245,19 +269,24 @@ function inferTitle(filePath: string, frontmatter: IssueFrontmatter, body: strin
  * Owns file body, title, naming, and issue creation/updates.
  */
 export class GhIssuesPlugin implements PrimarySyncPlugin {
-  readonly id = 'gh-issues';
-  readonly displayName = 'GitHub Issues';
+  readonly id = "gh-issues";
+  readonly displayName = "GitHub Issues";
 
   constructor(private readonly client: GitHubClient) {}
 
-  async pull(pluginConfig: Record<string, unknown>, _context: PluginContext): Promise<PullItem[]> {
+  async pull(
+    pluginConfig: Record<string, unknown>,
+    _context: PluginContext,
+  ): Promise<PullItem[]> {
     const config = pluginConfig as unknown as GhIssuesPluginConfig;
     const filters = config.filters;
-    const targetRepository = filters.repository ?? '';
+    const targetRepository = filters.repository ?? "";
 
     // Build search query; include repo qualifier only when scoped to a specific repo
     const baseQuery = buildSearchQuery(filters);
-    const query = targetRepository ? `${baseQuery} repo:${targetRepository}` : baseQuery;
+    const query = targetRepository
+      ? `${baseQuery} repo:${targetRepository}`
+      : baseQuery;
 
     // Use searchIssues which returns owner/repo per result (supports cross-repo)
     const searchResults = await this.client.searchIssues(query);
@@ -265,7 +294,11 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
     // Fetch full details for each issue using its own owner/repo
     const items: PullItem[] = [];
     for (const result of searchResults) {
-      const issue = await this.client.getIssue(result.owner, result.repo, result.number);
+      const issue = await this.client.getIssue(
+        result.owner,
+        result.repo,
+        result.number,
+      );
       const issueRepo = `${result.owner}/${result.repo}`;
       items.push(issueToPullItem(issue, issueRepo));
     }
@@ -288,23 +321,26 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
     let repository: string;
 
     if (remoteKey) {
-      const parts = remoteKey.split('/');
+      const parts = remoteKey.split("/");
       issueNumber = parseInt(parts[parts.length - 1], 10);
-      repository = parts.length >= 3 ? `${parts[0]}/${parts[1]}` : config.filters.repository ?? '';
+      repository =
+        parts.length >= 3
+          ? `${parts[0]}/${parts[1]}`
+          : (config.filters.repository ?? "");
     } else {
       // New issue — repository comes from config
       issueNumber = undefined;
-      repository = config.filters.repository ?? '';
+      repository = config.filters.repository ?? "";
     }
 
-    const [owner, repo] = repository.split('/');
+    const [owner, repo] = repository.split("/");
 
     if (issueNumber !== undefined) {
       // Update existing issue
       await this.client.updateIssue(owner, repo, issueNumber, {
         title: ghIssues.title,
         body,
-        state: ghIssues.state as 'open' | 'closed' | undefined,
+        state: ghIssues.state as "open" | "closed" | undefined,
         labels: ghIssues.labels,
         assignees: ghIssues.assignees,
       });
@@ -326,7 +362,7 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
       };
     } else {
       // Create new issue — title inferred by caller via inferTitle
-      const title = ghIssues.title || 'New issue';
+      const title = ghIssues.title || "New issue";
       const created = await this.client.createIssue(owner, repo, {
         title,
         body,
@@ -350,45 +386,65 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
     }
   }
 
-  buildFileName(namingTokens: Record<string, string | number>, template: string): string {
+  buildFileName(
+    namingTokens: Record<string, string | number>,
+    template: string,
+  ): string {
     return buildFileName(namingTokens, template);
   }
 
-  getRemoteId(frontmatter: IssueFrontmatter, stateEntry?: SyncStateEntry): number | undefined {
+  getRemoteId(
+    frontmatter: IssueFrontmatter,
+    stateEntry?: SyncStateEntry,
+  ): number | undefined {
     // Check state entry first (preferred source)
-    const ref = stateEntry?.plugins?.['gh-issues'];
+    const ref = stateEntry?.plugins?.["gh-issues"];
     if (ref) {
-      const parts = ref.key.split('/');
+      const parts = ref.key.split("/");
       const num = parseInt(parts[parts.length - 1], 10);
       if (!isNaN(num)) {
         return num;
       }
     }
     // Fallback: legacy frontmatter (for files not yet migrated)
-    const ghIssues = frontmatter['gh-issues'] as Record<string, unknown> | undefined;
-    return typeof ghIssues?.number === 'number' ? ghIssues.number : undefined;
+    const ghIssues = frontmatter["gh-issues"] as
+      | Record<string, unknown>
+      | undefined;
+    return typeof ghIssues?.number === "number" ? ghIssues.number : undefined;
   }
 
-  getRemoteKey(frontmatter: IssueFrontmatter, pluginConfig: Record<string, unknown>, stateEntry?: SyncStateEntry): string | undefined {
+  getRemoteKey(
+    frontmatter: IssueFrontmatter,
+    pluginConfig: Record<string, unknown>,
+    stateEntry?: SyncStateEntry,
+  ): string | undefined {
     // Check state entry first
-    const ref = stateEntry?.plugins?.['gh-issues'];
+    const ref = stateEntry?.plugins?.["gh-issues"];
     if (ref?.key) {
       return ref.key;
     }
     // Fallback: legacy frontmatter
-    const ghIssues = frontmatter['gh-issues'] as Record<string, unknown> | undefined;
-    const remoteId = typeof ghIssues?.number === 'number' ? ghIssues.number : undefined;
+    const ghIssues = frontmatter["gh-issues"] as
+      | Record<string, unknown>
+      | undefined;
+    const remoteId =
+      typeof ghIssues?.number === "number" ? ghIssues.number : undefined;
     if (remoteId === undefined) {
       return undefined;
     }
     const config = pluginConfig as unknown as GhIssuesPluginConfig;
-    const repository = (ghIssues?.repository as string) ?? config.filters.repository ?? '';
+    const repository =
+      (ghIssues?.repository as string) ?? config.filters.repository ?? "";
     return repository ? `${repository}/${remoteId}` : String(remoteId);
   }
 
-  async findExistingFile(filesDir: string, remoteKey: string, naming: string): Promise<string | null> {
+  async findExistingFile(
+    filesDir: string,
+    remoteKey: string,
+    naming: string,
+  ): Promise<string | null> {
     // Parse remoteKey format: "owner/repo/number"
-    const keyParts = remoteKey.split('/');
+    const keyParts = remoteKey.split("/");
     const remoteId = parseInt(keyParts[keyParts.length - 1], 10);
 
     if (isNaN(remoteId)) {
@@ -404,19 +460,19 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
     }
 
     for (const file of files) {
-      if (!file.endsWith('.md')) {
+      if (!file.endsWith(".md")) {
         continue;
       }
       const base = file.slice(0, -3);
       const tokens: Record<string, string | number> = {
-        'gh-issues.number': remoteId,
-        'gh-issues.title': base,
+        "gh-issues.number": remoteId,
+        "gh-issues.title": base,
       };
       const expectedStart = buildFileName(
-        { ...tokens, 'gh-issues.title': '' },
+        { ...tokens, "gh-issues.title": "" },
         naming,
       );
-      if (base.startsWith(expectedStart.replace(/-$/, ''))) {
+      if (base.startsWith(expectedStart.replace(/-$/, ""))) {
         return path.join(filesDir, file);
       }
     }
@@ -424,7 +480,11 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
     return null;
   }
 
-  inferTitle(filePath: string, frontmatter: IssueFrontmatter, body: string): string {
+  inferTitle(
+    filePath: string,
+    frontmatter: IssueFrontmatter,
+    body: string,
+  ): string {
     return inferTitle(filePath, frontmatter, body);
   }
 }

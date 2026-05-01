@@ -34,11 +34,11 @@
       },
       {
         "command": "issuesAsCode.addMyIssuesOnGitHub",
-        "title": "Issues as Code: Add setting - My issues on GitHub"
+        "title": "Issues as Code: Add setting - My open issues on GitHub"
       },
       {
         "command": "issuesAsCode.addMyIssuesOnThisRepo",
-        "title": "Issues as Code: Add setting - My issues on this repository"
+        "title": "Issues as Code: Add setting - My open issues on this repository"
       },
       {
         "command": "issuesAsCode.publishFile",
@@ -78,6 +78,11 @@
               "naming": {
                 "type": "string",
                 "description": "Template for file names. Use tokens like {gh-issues.number} and {gh-issues.title}."
+              },
+              "readOnly": {
+                "type": "boolean",
+                "default": false,
+                "description": "When true, files are updated from remote but local changes are never pushed. Local edits are overwritten on each pull. Files are made read-only on disk."
               },
               "gh-issues": {
                 "type": "object",
@@ -245,6 +250,6 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
     "test": "node ./out/test/runTests.js",
-    "test:unit": "mocha --ui tdd out/test/fileManager.test.js out/test/configManager.test.js out/test/syncManager.test.js out/test/syncStateManager.test.js out/test/issueDecorationProvider.test.js"
+    "test:unit": "mocha --ui tdd out/test/fileManager.test.js out/test/configManager.test.js out/test/syncManager.test.js out/test/syncStateManager.test.js out/test/issueDecorationProvider.test.js out/test/publishCodeLensProvider.test.js out/test/frontmatterCompletionProvider.test.js"
   }
 }

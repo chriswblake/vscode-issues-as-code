@@ -1,16 +1,31 @@
-import * as vscode from 'vscode';
-import * as path from 'path';
-import { getConfig, ensureGitignore, type SyncTarget } from './configManager';
-import { SyncManager, reconcileTargetChanges, switchEditorToRenamedFile } from './syncManager';
-import { SyncStateManager } from './syncStateManager';
-import { IssueDecorationProvider } from './issueDecorationProvider';
-import { PublishCodeLensProvider } from './publishCodeLensProvider';
-import { initializePlugins, registerPluginCommands, detectDefaultTargets } from './plugins/loader';
-import { getPrimaryPlugin, getPrimaryPluginIds, type PrimarySyncPlugin } from './plugins/syncPlugin';
+import * as vscode from "vscode";
+import * as path from "path";
+import { getConfig, ensureGitignore, type SyncTarget } from "./configManager";
+import {
+  SyncManager,
+  reconcileTargetChanges,
+  switchEditorToRenamedFile,
+} from "./syncManager";
+import { SyncStateManager } from "./syncStateManager";
+import { IssueDecorationProvider } from "./issueDecorationProvider";
+import { PublishCodeLensProvider } from "./publishCodeLensProvider";
+import { FrontmatterCompletionProvider } from "./frontmatterCompletionProvider";
+import {
+  initializePlugins,
+  registerPluginCommands,
+  detectDefaultTargets,
+} from "./plugins/loader";
+import {
+  getPrimaryPlugin,
+  getPrimaryPluginIds,
+  type PrimarySyncPlugin,
+} from "./plugins/syncPlugin";
+import { GitHubClient } from "./plugins/githubClient";
 
 const syncManagers: SyncManager[] = [];
 let decorationProvider: IssueDecorationProvider | undefined;
 let codeLensProvider: PublishCodeLensProvider | undefined;
+let completionProvider: FrontmatterCompletionProvider | undefined;
 
 // Serializes reinitializations so rapid config-change events don't overlap.
 // Each call is chained after the previous one; all callers await the same chain tail.
@@ -20,7 +35,9 @@ let reinitializeChain: Promise<void> = Promise.resolve();
 const CONFIG_CHANGE_DEBOUNCE_MS = 3000;
 let configChangeDebounceTimer: NodeJS.Timeout | null = null;
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+export async function activate(
+  context: vscode.ExtensionContext,
+): Promise<void> {
   registerProviders(context);
   await reinitializeAllFolders(context);
   registerCommands(context);
@@ -33,13 +50,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 function registerProviders(context: vscode.ExtensionContext): void {
   // File decoration provider (sync state badges)
   decorationProvider = new IssueDecorationProvider();
-  context.subscriptions.push(vscode.window.registerFileDecorationProvider(decorationProvider));
+  context.subscriptions.push(
+    vscode.window.registerFileDecorationProvider(decorationProvider),
+  );
 
   // CodeLens provider for unpublished files
   codeLensProvider = new PublishCodeLensProvider();
   context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider({ scheme: 'file', language: 'markdown' }, codeLensProvider),
+    vscode.languages.registerCodeLensProvider(
+      { scheme: "file", language: "markdown" },
+      codeLensProvider,
+    ),
   );
+
+  // Completion provider for frontmatter fields (state, labels, assignees)
+  void GitHubClient.authenticate().then((client) => {
+    if (!client) {
+      return;
+    }
+    completionProvider = new FrontmatterCompletionProvider(client);
+    context.subscriptions.push(
+      vscode.languages.registerCompletionItemProvider(
+        { scheme: "file", language: "markdown" },
+        completionProvider,
+        ":",
+        " ",
+        "-",
+        "\n",
+      ),
+    );
+  });
 
   // Track unsaved editor changes to show M badge immediately
   context.subscriptions.push(
@@ -67,15 +107,20 @@ function registerCommands(context: vscode.ExtensionContext): void {
       await reinitializeAllFolders(context);
     }
     if (syncManagers.length === 0) {
-      void vscode.window.showWarningMessage('No sync targets are active for this workspace. Configure issuesAsCode.syncTargets or open a folder with a GitHub remote.');
+      void vscode.window.showWarningMessage(
+        "No sync targets are active for this workspace. Configure issuesAsCode.syncTargets or open a folder with a GitHub remote.",
+      );
       return;
     }
     syncManagers.forEach((m) => void m.pullAll());
   }
 
   context.subscriptions.push(
-    vscode.commands.registerCommand('issuesAsCode.pullNow', ensureManagersAndPull),
-    vscode.commands.registerCommand('issuesAsCode.pushNow', async () => {
+    vscode.commands.registerCommand(
+      "issuesAsCode.pullNow",
+      ensureManagersAndPull,
+    ),
+    vscode.commands.registerCommand("issuesAsCode.pushNow", async () => {
       const editor = vscode.window.activeTextEditor;
       if (editor) {
         const filePath = editor.document.uri.fsPath;
@@ -88,32 +133,42 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }
       }
     }),
-    vscode.commands.registerCommand('issuesAsCode.refresh', ensureManagersAndPull),
-    vscode.commands.registerCommand('issuesAsCode.publishFile', async (uri?: vscode.Uri) => {
-      const targetUri = uri ?? vscode.window.activeTextEditor?.document.uri;
-      if (!targetUri) {
-        void vscode.window.showWarningMessage('No file is open to publish.');
-        return;
-      }
-
-      const filePath = targetUri.fsPath;
-      const manager = syncManagers.find((m) => m.ownsFile(filePath));
-      if (!manager) {
-        void vscode.window.showWarningMessage('This file is not inside a managed sync target folder.');
-        return;
-      }
-
-      try {
-        const newPath = await manager.pushFile(filePath);
-        if (newPath) {
-          await switchEditorToRenamedFile(filePath, newPath);
+    vscode.commands.registerCommand(
+      "issuesAsCode.refresh",
+      ensureManagersAndPull,
+    ),
+    vscode.commands.registerCommand(
+      "issuesAsCode.publishFile",
+      async (uri?: vscode.Uri) => {
+        const targetUri = uri ?? vscode.window.activeTextEditor?.document.uri;
+        if (!targetUri) {
+          void vscode.window.showWarningMessage("No file is open to publish.");
+          return;
         }
-      } catch (err) {
-        void vscode.window.showErrorMessage(`Failed to publish file: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }),
+
+        const filePath = targetUri.fsPath;
+        const manager = syncManagers.find((m) => m.ownsFile(filePath));
+        if (!manager) {
+          void vscode.window.showWarningMessage(
+            "This file is not inside a managed sync target folder.",
+          );
+          return;
+        }
+
+        try {
+          const newPath = await manager.pushFile(filePath);
+          if (newPath) {
+            await switchEditorToRenamedFile(filePath, newPath);
+          }
+        } catch (err) {
+          void vscode.window.showErrorMessage(
+            `Failed to publish file: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      },
+    ),
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration('issuesAsCode')) {
+      if (event.affectsConfiguration("issuesAsCode")) {
         if (configChangeDebounceTimer) {
           clearTimeout(configChangeDebounceTimer);
         }
@@ -133,7 +188,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
 // Initialization
 // ---------------------------------------------------------------------------
 
-async function reinitializeAllFolders(context: vscode.ExtensionContext): Promise<void> {
+async function reinitializeAllFolders(
+  context: vscode.ExtensionContext,
+): Promise<void> {
   reinitializeChain = reinitializeChain
     .catch(() => {
       /* ignore errors from prior run */
@@ -142,13 +199,21 @@ async function reinitializeAllFolders(context: vscode.ExtensionContext): Promise
   return reinitializeChain;
 }
 
-async function doReinitializeAllFolders(context: vscode.ExtensionContext): Promise<void> {
+async function doReinitializeAllFolders(
+  context: vscode.ExtensionContext,
+): Promise<void> {
   // Capture old targets and the shared state manager per folder before tearing down
-  const oldStateByFolder = new Map<string, { targets: SyncTarget[]; stateManager: SyncStateManager }>();
+  const oldStateByFolder = new Map<
+    string,
+    { targets: SyncTarget[]; stateManager: SyncStateManager }
+  >();
   for (const manager of syncManagers) {
     const fsPath = manager.workspaceFolderFsPath;
     if (!oldStateByFolder.has(fsPath)) {
-      oldStateByFolder.set(fsPath, { targets: [], stateManager: manager.stateManager });
+      oldStateByFolder.set(fsPath, {
+        targets: [],
+        stateManager: manager.stateManager,
+      });
     }
     oldStateByFolder.get(fsPath)!.targets.push(manager.target);
   }
@@ -193,7 +258,10 @@ function resolvePluginForTarget(target: SyncTarget): PrimarySyncPlugin | null {
   return null;
 }
 
-async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.ExtensionContext): Promise<void> {
+async function activateFolder(
+  folder: vscode.WorkspaceFolder,
+  context: vscode.ExtensionContext,
+): Promise<void> {
   const config = getConfig(folder.uri.fsPath, folder);
 
   // Use explicitly configured targets; fall back to plugin-detected defaults
@@ -206,7 +274,10 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
     targets = detected;
   }
 
-  await ensureGitignore(folder.uri.fsPath, [...targets.map((t) => t.filesDir), config.syncStatePath]);
+  await ensureGitignore(folder.uri.fsPath, [
+    ...targets.map((t) => t.filesDir),
+    config.syncStatePath,
+  ]);
   await applyFilesExclude(folder, config);
 
   const stateManager = new SyncStateManager(config.syncStatePath);
@@ -224,7 +295,9 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
   // Remove state entries for files no longer under any active target location
   const activeLocations = new Set(targets.map((t) => t.filesDir));
   for (const filePath of stateManager.getKnownFilePaths()) {
-    const isActive = [...activeLocations].some((loc) => filePath.startsWith(loc + path.sep));
+    const isActive = [...activeLocations].some((loc) =>
+      filePath.startsWith(loc + path.sep),
+    );
     if (!isActive) {
       await stateManager.deleteEntry(filePath);
     }
@@ -234,7 +307,7 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
   if (getPrimaryPluginIds().length === 0) {
     const initialized = await initializePlugins();
     if (initialized.length === 0) {
-      console.warn('[issuesAsCode] No plugins could be initialized');
+      console.warn("[issuesAsCode] No plugins could be initialized");
       return;
     }
   }
@@ -242,11 +315,20 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
   for (const target of targets) {
     const plugin = resolvePluginForTarget(target);
     if (!plugin) {
-      console.warn(`[issuesAsCode] No plugin found for target: ${JSON.stringify(target)}`);
+      console.warn(
+        `[issuesAsCode] No plugin found for target: ${JSON.stringify(target)}`,
+      );
       continue;
     }
 
-    const manager = new SyncManager(plugin, config, target, folder, context, stateManager);
+    const manager = new SyncManager(
+      plugin,
+      config,
+      target,
+      folder,
+      context,
+      stateManager,
+    );
     await manager.start();
     syncManagers.push(manager);
     context.subscriptions.push({ dispose: () => manager.dispose() });
@@ -254,7 +336,11 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
 
   // Update decoration provider with all active managed locations and config
   if (decorationProvider) {
-    const locations = syncManagers.map((m) => ({ location: m.target.filesDir, stateManager: m.stateManager }));
+    const locations = syncManagers.map((m) => ({
+      location: m.target.filesDir,
+      stateManager: m.stateManager,
+      readOnly: m.target.readOnly,
+    }));
     decorationProvider.update(locations, config.showSyncIcons);
   }
 
@@ -265,8 +351,32 @@ async function activateFolder(folder: vscode.WorkspaceFolder, context: vscode.Ex
       pluginId: m.plugin.id,
       displayName: m.plugin.displayName,
       stateManager: m.stateManager,
+      readOnly: m.target.readOnly,
     }));
     codeLensProvider.update(codeLensTargets);
+  }
+
+  // Update completion provider with managed targets (extract repository from gh-issues config)
+  if (completionProvider) {
+    const completionTargets = syncManagers.map((m) => {
+      const pluginConfig = m.target[m.plugin.id] as
+        | Record<string, unknown>
+        | undefined;
+      const filters = pluginConfig?.["filters"] as
+        | Record<string, unknown>
+        | undefined;
+      const repository =
+        typeof filters?.["repository"] === "string"
+          ? filters["repository"]
+          : undefined;
+      return {
+        filesDir: m.target.filesDir,
+        pluginId: m.plugin.id,
+        repository,
+        stateManager: m.stateManager,
+      };
+    });
+    completionProvider.update(completionTargets);
   }
 }
 
@@ -279,14 +389,20 @@ export function deactivate(): void {
  * Adds or removes the sync state file from VS Code's files.exclude setting
  * based on the showSyncState configuration.
  */
-async function applyFilesExclude(folder: vscode.WorkspaceFolder, config: import('./configManager').IssueConfig): Promise<void> {
+async function applyFilesExclude(
+  folder: vscode.WorkspaceFolder,
+  config: import("./configManager").IssueConfig,
+): Promise<void> {
   const relPath = path.relative(folder.uri.fsPath, config.syncStatePath);
-  if (relPath.startsWith('..')) {
+  if (relPath.startsWith("..")) {
     return;
   }
 
-  const filesConfig = vscode.workspace.getConfiguration('files', folder.uri);
-  const folderExclude = { ...(filesConfig.inspect<Record<string, boolean>>('exclude')?.workspaceFolderValue ?? {}) };
+  const filesConfig = vscode.workspace.getConfiguration("files", folder.uri);
+  const folderExclude = {
+    ...(filesConfig.inspect<Record<string, boolean>>("exclude")
+      ?.workspaceFolderValue ?? {}),
+  };
 
   if (config.showSyncState) {
     delete folderExclude[relPath];
@@ -294,5 +410,9 @@ async function applyFilesExclude(folder: vscode.WorkspaceFolder, config: import(
     folderExclude[relPath] = true;
   }
 
-  await filesConfig.update('exclude', folderExclude, vscode.ConfigurationTarget.WorkspaceFolder);
+  await filesConfig.update(
+    "exclude",
+    folderExclude,
+    vscode.ConfigurationTarget.WorkspaceFolder,
+  );
 }

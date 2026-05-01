@@ -1,11 +1,11 @@
-import { Octokit } from '@octokit/rest';
+import { Octokit } from "@octokit/rest";
 
-const GITHUB_API_VERSION = '2022-11-28';
+const GITHUB_API_VERSION = "2022-11-28";
 
 export interface IssueData {
   number: number;
   title: string;
-  state: 'open' | 'closed';
+  state: "open" | "closed";
   body: string | null;
   labels: string[];
   assignees: string[];
@@ -23,7 +23,7 @@ export class GitHubClient {
       auth: accessToken,
       request: {
         headers: {
-          'X-GitHub-Api-Version': GITHUB_API_VERSION,
+          "X-GitHub-Api-Version": GITHUB_API_VERSION,
         },
       },
     });
@@ -35,10 +35,14 @@ export class GitHubClient {
   static async authenticate(): Promise<GitHubClient | null> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const vscode = require('vscode');
-      let session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: false });
+      const vscode = require("vscode");
+      let session = await vscode.authentication.getSession("github", ["repo"], {
+        createIfNone: false,
+      });
       if (!session) {
-        session = await vscode.authentication.getSession('github', ['repo'], { createIfNone: true });
+        session = await vscode.authentication.getSession("github", ["repo"], {
+          createIfNone: true,
+        });
       }
       if (!session) {
         return null;
@@ -62,30 +66,41 @@ export class GitHubClient {
    * Searches for issues and returns structured results including repository info.
    * Useful for cross-repo searches where owner/repo isn't known upfront.
    */
-  async searchIssues(query: string): Promise<Array<{ number: number; owner: string; repo: string }>> {
-    const searchResults = await this.octokit.paginate(this.octokit.rest.search.issuesAndPullRequests, { q: query, per_page: 100 }, (response) => {
-      const remaining = response.headers['x-ratelimit-remaining'];
-      if (remaining !== undefined) {
-        console.log(`[issuesAsCode] x-ratelimit-remaining: ${remaining}`);
-      }
-      return response.data;
-    });
+  async searchIssues(
+    query: string,
+  ): Promise<Array<{ number: number; owner: string; repo: string }>> {
+    const searchResults = await this.octokit.paginate(
+      this.octokit.rest.search.issuesAndPullRequests,
+      { q: query, per_page: 100 },
+      (response) => {
+        const remaining = response.headers["x-ratelimit-remaining"];
+        if (remaining !== undefined) {
+          console.log(`[issuesAsCode] x-ratelimit-remaining: ${remaining}`);
+        }
+        return response.data;
+      },
+    );
 
     // Filter out pull requests and extract repo info from repository_url
     return searchResults
       .filter((item) => !item.pull_request)
       .map((item) => {
         // repository_url format: "https://api.github.com/repos/owner/repo"
-        const repoUrl = (item as { repository_url?: string }).repository_url ?? '';
-        const parts = repoUrl.split('/');
-        const repo = parts[parts.length - 1] ?? '';
-        const owner = parts[parts.length - 2] ?? '';
+        const repoUrl =
+          (item as { repository_url?: string }).repository_url ?? "";
+        const parts = repoUrl.split("/");
+        const repo = parts[parts.length - 1] ?? "";
+        const owner = parts[parts.length - 2] ?? "";
         return { number: item.number, owner, repo };
       });
   }
 
   /** Gets a single issue by number using the REST API. */
-  async getIssue(owner: string, repo: string, number: number): Promise<IssueData> {
+  async getIssue(
+    owner: string,
+    repo: string,
+    number: number,
+  ): Promise<IssueData> {
     const { data } = await this.octokit.rest.issues.get({
       owner,
       repo,
@@ -122,7 +137,7 @@ export class GitHubClient {
     params: {
       title?: string;
       body?: string;
-      state?: 'open' | 'closed';
+      state?: "open" | "closed";
       labels?: string[];
       assignees?: string[];
     },
@@ -135,6 +150,34 @@ export class GitHubClient {
     });
     return mapIssue(data);
   }
+
+  /** Lists all label names for a repository. */
+  async getLabels(owner: string, repo: string): Promise<string[]> {
+    const labels = await this.octokit.paginate(
+      this.octokit.rest.issues.listLabelsForRepo,
+      {
+        owner,
+        repo,
+        per_page: 100,
+      },
+    );
+    return labels.map((l) => l.name);
+  }
+
+  /** Lists contributor logins for a repository. */
+  async getContributors(owner: string, repo: string): Promise<string[]> {
+    const contributors = await this.octokit.paginate(
+      this.octokit.rest.repos.listContributors,
+      {
+        owner,
+        repo,
+        per_page: 100,
+      },
+    );
+    return contributors
+      .map((c) => (c as { login?: string }).login ?? "")
+      .filter((login) => login.length > 0);
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -142,13 +185,17 @@ function mapIssue(data: any): IssueData {
   return {
     number: data.number,
     title: data.title,
-    state: data.state as 'open' | 'closed',
+    state: data.state as "open" | "closed",
     body: data.body ?? null,
-    labels: (data.labels ?? []).map((l: { name?: string } | string) => (typeof l === 'string' ? l : (l.name ?? ''))),
-    assignees: (data.assignees ?? []).map((a: { login?: string } | string) => (typeof a === 'string' ? a : (a.login ?? ''))),
+    labels: (data.labels ?? []).map((l: { name?: string } | string) =>
+      typeof l === "string" ? l : (l.name ?? ""),
+    ),
+    assignees: (data.assignees ?? []).map((a: { login?: string } | string) =>
+      typeof a === "string" ? a : (a.login ?? ""),
+    ),
     updated_at: data.updated_at,
     closed_at: data.closed_at ?? null,
     node_id: data.node_id,
-    html_url: data.html_url ?? '',
+    html_url: data.html_url ?? "",
   };
 }
