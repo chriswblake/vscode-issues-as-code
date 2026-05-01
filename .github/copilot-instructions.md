@@ -1,7 +1,5 @@
 ## Formatting and Commenting
 
-When finished working run prettier.
-
 Put functions with several inputs on separate lines.
 Place a `//` after the first input to prevent prettier from collapsing to one line.
 
@@ -11,8 +9,9 @@ Use descriptive variable and function names. Avoid abbreviations unless they are
 
 When finishing a task, ensure formatting is consistent, organized, and readable by someone new to the project. Refactor to improve readability and maintainability.
 
-Organize methods in a file into groups to make them easy to find.
+When finishing a task, run prettier. `npx prettier --write .`
 
+Organize methods in a file into groups to make them easy to find.
 
 ## Architecture
 

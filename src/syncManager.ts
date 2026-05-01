@@ -202,16 +202,16 @@ export class SyncManager {
   }
 
   /** Push a single file to the remote service via the plugin. */
-  async pushFile(filePath: string): Promise<void> {
+  async pushFile(filePath: string): Promise<string | undefined> {
     const raw = await fs.promises.readFile(filePath, 'utf8');
     if (hasConflictMarkers(raw)) {
-      return;
+      return undefined;
     }
 
     const { frontmatter, body } = await readIssueFile(filePath);
     const pluginConfig = this.target[this.plugin.id] as Record<string, unknown> | undefined;
     if (!pluginConfig) {
-      return;
+      return undefined;
     }
 
     const remoteId = this.plugin.getRemoteId(frontmatter);
@@ -230,7 +230,7 @@ export class SyncManager {
 
       if (cloudItem && isConflict(cloudItem.remoteInfo.updated_at, this.stateManager.getSyncedAt(filePath))) {
         await this.handlePullConflict(filePath, cloudItem);
-        return;
+        return undefined;
       }
     }
 
@@ -263,7 +263,10 @@ export class SyncManager {
 
     if (expectedPath !== filePath) {
       await this.unlinkSuppressed(filePath);
+      return expectedPath;
     }
+
+    return undefined;
   }
 
   /** Debounced push — called from file watcher on changes to existing files. */
