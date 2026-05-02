@@ -26,6 +26,11 @@ Use intuitive names for variables, functions, etc.
 
 Do not worry about supporting previous versions of the code. Refactor and simplify as needed. There have been no releases yet.
 
+### Plugin architecture
+
+Do not directly reference plugin specific logic in the core program.
+Plugins are dynamically loaded at runtime.
+
 ## Testing
 
 All unit tests must be independent.
