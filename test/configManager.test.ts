@@ -188,7 +188,7 @@ suite("configManager – getConfig defaults", () => {
     assert.strictEqual(config.fileNaming, "{issue-num}-{issue-title}");
     assert.strictEqual(config.pushOnSaveDelay, 60);
     assert.strictEqual(config.showSyncState, false);
-    assert.strictEqual(config.pullInterval, 30);
+    assert.strictEqual(config.autoFetchInterval, 30);
   });
 
   test("enableExperimentalProjects defaults to false", () => {

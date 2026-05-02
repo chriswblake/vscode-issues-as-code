@@ -4,6 +4,23 @@
 
 ### Changed
 
+- **Sync details CodeLens on second line**: The "⟳ Sync Now" button and sync status info now appear on a separate line below the remote reference link, giving clearer visual separation between the URL and sync actions.
+- **Push blocked when remote has pending changes**: When the remote has been updated since the last sync, pushing local changes is blocked. An interactive warning prompts the user to pull remote changes first, preventing accidental overwrites.
+- **Pull hold-off for modified files**: During periodic pulls, if the local file has been modified and the remote also has changes, remote changes are no longer auto-applied. Instead, they are tracked as pending and surfaced via the "Pull Changes" button.
+
+### Added
+
+- **"⬇ Pull Changes" CodeLens button**: When the remote has pending changes that haven't been applied locally, a "Pull Changes" button appears on the sync details line with a tooltip: "There are pending changes on the remote."
+- **Remote status info in CodeLens**: The sync details line shows when the remote was last modified (e.g., "Remote was last modified at 2:30 PM by @user123.").
+- **Command: "Issues as Code: Pull Remote Changes"** (`issuesAsCode.pullFile`) — Explicitly pulls remote changes for the current file, applying them locally (with conflict markers if both sides changed).
+- **`last_modified_by` tracking**: `RemoteIssueInfo` now supports an optional `last_modified_by` field for plugins to populate.
+- **`hasPendingRemoteChanges` helper**: `SyncStateManager` exposes a method to detect whether the remote has been updated more recently than the last local sync.
+- **`issuesAsCode.autoPullOnFetch` setting**: When enabled, automatically applies remote changes to local task files after fetching, as long as there are no local modifications that would conflict. Defaults to `false`.
+
+## [previous]
+
+### Changed
+
 - **Plugin architecture refactor**: Sync logic is now decoupled from specific services via a plugin system. Each remote service (GitHub Issues, GitHub Projects, TickTick) is implemented as an isolated plugin under `src/plugins/`.
 - **New plugin types**: `PrimarySyncPlugin` (owns file body and creation — e.g. gh-issues) and `MetadataPlugin` (enriches frontmatter — e.g. gh-projects) replace the previous monolithic approach.
 - **SyncManager is now generic**: No longer contains GitHub-specific logic. Delegates pull/push operations to the configured plugin. Conflict markers say "Remote" instead of "GitHub".

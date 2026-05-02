@@ -10,7 +10,12 @@ function vscode(): typeof vscodeType {
   return require("vscode");
 }
 
-export type SyncStatus = "new" | "modified" | "synchronized" | "readOnly";
+export type SyncStatus =
+  | "new"
+  | "modified"
+  | "synchronized"
+  | "pendingRemote"
+  | "readOnly";
 
 // Decoration definitions per status
 const DECORATIONS: Record<
@@ -31,6 +36,11 @@ const DECORATIONS: Record<
     badge: "✓",
     tooltip: "Synchronized: Local issue matches remote issue",
   },
+  pendingRemote: {
+    badge: "↓",
+    tooltip: "Pending Remote: Remote has changes not yet pulled locally",
+    colorId: "gitDecoration.modifiedResourceForeground",
+  },
   readOnly: {
     badge: "🔏",
     tooltip: "Read-Only: Managed by remote; local changes are not pushed",
@@ -39,6 +49,7 @@ const DECORATIONS: Record<
 
 interface ManagedLocation {
   location: string;
+  pluginId: string;
   stateManager: SyncStateManager;
   readOnly?: boolean;
 }
@@ -153,6 +164,7 @@ export class IssueDecorationProvider
     const status = this.resolveStatus(
       uri.fsPath,
       managed.stateManager,
+      managed.pluginId,
       managed.readOnly,
     );
 
@@ -186,6 +198,7 @@ export class IssueDecorationProvider
   private resolveStatus(
     filePath: string,
     stateManager: SyncStateManager,
+    pluginId: string,
     readOnly?: boolean,
   ): SyncStatus {
     // readOnly files always show the lock icon
@@ -218,6 +231,11 @@ export class IssueDecorationProvider
     // Allow 1 second tolerance to account for filesystem resolution differences
     if (fileMtime > localWrittenAt + 1000) {
       return "modified";
+    }
+
+    // Check if remote has pending changes
+    if (stateManager.hasPendingRemoteChanges(filePath, pluginId)) {
+      return "pendingRemote";
     }
 
     return "synchronized";

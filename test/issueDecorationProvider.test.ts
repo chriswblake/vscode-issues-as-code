@@ -56,7 +56,7 @@ suite("issueDecorationProvider – new issue status", () => {
     fs.writeFileSync(issueFile, "# New issue\n", "utf8");
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
       synchronized: true,
@@ -82,7 +82,7 @@ suite("issueDecorationProvider – new issue status", () => {
     fs.writeFileSync(issueFile, "# New issue\n", "utf8");
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: false,
       modified: true,
       synchronized: true,
@@ -125,7 +125,7 @@ suite("issueDecorationProvider – synchronized status", () => {
     fs.utimesSync(issueFile, past, past);
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
       synchronized: true,
@@ -161,7 +161,7 @@ suite("issueDecorationProvider – synchronized status", () => {
     fs.utimesSync(issueFile, past, past);
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
       synchronized: false,
@@ -203,7 +203,7 @@ suite("issueDecorationProvider – modified status", () => {
     fs.utimesSync(issueFile, future, future);
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
       synchronized: true,
@@ -239,7 +239,7 @@ suite("issueDecorationProvider – modified status", () => {
     fs.utimesSync(issueFile, future, future);
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: false,
       synchronized: true,
@@ -268,7 +268,7 @@ suite("issueDecorationProvider – path filtering", () => {
     await stateManager.load();
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
       synchronized: true,
@@ -292,7 +292,7 @@ suite("issueDecorationProvider – path filtering", () => {
     await stateManager.load();
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
       synchronized: true,
@@ -471,7 +471,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     fs.utimesSync(issueFile, past, past);
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
       synchronized: true,
@@ -507,7 +507,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     fs.utimesSync(issueFile, past, past);
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
       synchronized: true,
@@ -544,7 +544,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     fs.utimesSync(issueFile, past, past);
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
       synchronized: true,
@@ -595,7 +595,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     );
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
       synchronized: true,
@@ -632,7 +632,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     fs.utimesSync(issueFile, past, past);
 
     const provider = new IssueDecorationProvider();
-    provider.update([{ location: dir, stateManager }], {
+    provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
       synchronized: true,

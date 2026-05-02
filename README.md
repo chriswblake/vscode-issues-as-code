@@ -38,15 +38,16 @@ Synchronize GitHub issues to a local `.issues/` folder — edit them as Markdown
 
 All settings have `"scope": "resource"` so they can be set per workspace folder.
 
-| Setting                        | Type      | Default                                                  | Description                                                   |
-| ------------------------------ | --------- | -------------------------------------------------------- | ------------------------------------------------------------- |
-| `issuesAsCode.fileNaming`      | `string`  | `{issue-num}-{issue-title}`                              | Template for issue file names                                 |
-| `issuesAsCode.pushOnSaveDelay` | `number`  | `60`                                                     | Seconds to wait after last save before pushing                |
-| `issuesAsCode.syncTargets`     | `array`   | `[]`                                                     | Repositories and queries to sync (see below)                  |
-| `issuesAsCode.pullInterval`    | `number`  | `30`                                                     | Minutes between automatic pulls                               |
-| `issuesAsCode.syncStatePath`   | `string`  | `.issues/sync-state.yml`                                 | Path to the local sync state file (machine-local, gitignored) |
-| `issuesAsCode.showSyncState`   | `boolean` | `false`                                                  | Show the sync state file in the VS Code Explorer              |
-| `issuesAsCode.showSyncIcons`   | `object`  | `{ newIssue: true, modified: true, synchronized: true }` | Controls which sync status badges appear on issue files       |
+| Setting                          | Type      | Default                                                  | Description                                                   |
+| -------------------------------- | --------- | -------------------------------------------------------- | ------------------------------------------------------------- |
+| `issuesAsCode.fileNaming`        | `string`  | `{issue-num}-{issue-title}`                              | Template for issue file names                                 |
+| `issuesAsCode.pushOnSaveDelay`   | `number`  | `60`                                                     | Seconds to wait after last save before pushing                |
+| `issuesAsCode.syncTargets`       | `array`   | `[]`                                                     | Repositories and queries to sync (see below)                  |
+| `issuesAsCode.autoFetchInterval` | `number`  | `30`                                                     | Minutes between automatic fetches from the remote             |
+| `issuesAsCode.autoPullOnFetch`   | `boolean` | `false`                                                  | Auto-apply remote changes after fetch if no local conflicts   |
+| `issuesAsCode.syncStatePath`     | `string`  | `.issues/sync-state.yml`                                 | Path to the local sync state file (machine-local, gitignored) |
+| `issuesAsCode.showSyncState`     | `boolean` | `false`                                                  | Show the sync state file in the VS Code Explorer              |
+| `issuesAsCode.showSyncIcons`     | `object`  | `{ newIssue: true, modified: true, synchronized: true }` | Controls which sync status badges appear on issue files       |
 
 ### `issuesAsCode.syncTargets`
 

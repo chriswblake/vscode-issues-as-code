@@ -20,7 +20,9 @@ interface ManagedTarget {
 /**
  * Provides CodeLens actions on task files.
  * - Unpublished files: shows "▶ Publish to <service>" button.
- * - Published files: shows "owner/repo#42 → Open in Browser" button, with an optional "⟳ Sync Now" button when modified.
+ * - Published files:
+ *   - Line 1: "owner/repo#42 → Open in Browser" link.
+ *   - Line 2: Sync details — remote status, "Pull Changes" (if pending), "Sync Now" (if modified locally).
  * - Read-only files: shows only the remote reference link (no publish or sync buttons).
  */
 export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
@@ -48,6 +50,11 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
     this._emitter?.fire();
   }
 
+  /** Signal that CodeLens should be recomputed (e.g. after state changes). */
+  refresh(): void {
+    this._emitter?.fire();
+  }
+
   provideCodeLenses(
     document: vscodeType.TextDocument,
     _token: vscodeType.CancellationToken,
@@ -71,24 +78,54 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
     const pluginRef = stateEntry?.plugins?.[matchingTarget.pluginId];
 
     if (pluginRef?.key) {
-      // Published — show remote reference CodeLens above the plugin's frontmatter section
+      // Published — show CodeLens inside the plugin's frontmatter section
       const sectionLine = findFrontmatterSectionLine(
         document,
         matchingTarget.pluginId,
       );
+
+      // Both CodeLens on the first field line so they stack together under "gh-issues:"
+      const lensLine = sectionLine + 1;
+
+      // Line 1: Remote reference link
       const lenses = [
         this.createRemoteRefCodeLens(
           document, //
           pluginRef.key,
           matchingTarget.pluginId,
           matchingTarget.stateManager,
-          sectionLine,
+          lensLine,
         ),
       ];
 
-      // Show a "Sync Now" button when the file has unsaved or unsynced changes, unless read-only
-      if (!matchingTarget.readOnly && isFileModified(filePath, stateEntry)) {
-        lenses.push(this.createSyncNowCodeLens(document, sectionLine));
+      // Line 2: Sync details
+      if (!matchingTarget.readOnly) {
+        const hasPending = matchingTarget.stateManager.hasPendingRemoteChanges(
+          filePath,
+          matchingTarget.pluginId,
+        );
+
+        // Remote status info
+        const statusText = this.buildRemoteStatusText(
+          filePath,
+          matchingTarget.pluginId,
+          matchingTarget.stateManager,
+        );
+        if (statusText) {
+          lenses.push(
+            this.createStatusCodeLens(document, lensLine, statusText),
+          );
+        }
+
+        // "Pull Changes" button when remote has pending changes
+        if (hasPending) {
+          lenses.push(this.createPullChangesCodeLens(document, lensLine));
+        }
+
+        // "Sync Now" button when locally modified and no pending remote changes
+        if (!hasPending && isFileModified(filePath, stateEntry)) {
+          lenses.push(this.createSyncNowCodeLens(document, lensLine));
+        }
       }
 
       return lenses;
@@ -109,6 +146,30 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
         matchingTarget.displayName,
       ),
     ];
+  }
+
+  private buildRemoteStatusText(
+    filePath: string,
+    pluginId: string,
+    stateManager: SyncStateManager,
+  ): string | null {
+    const pluginData = stateManager.getPluginData(filePath, pluginId);
+    if (!pluginData) {
+      return null;
+    }
+
+    const updatedAt = pluginData.updated_at as string | undefined;
+    if (!updatedAt) {
+      return null;
+    }
+
+    const timeStr = formatRelativeTime(new Date(updatedAt));
+
+    const lastModifiedBy = pluginData.last_modified_by as string | undefined;
+    if (lastModifiedBy) {
+      return `Remote was last modified ${timeStr} by @${lastModifiedBy}.`;
+    }
+    return `Remote was last modified ${timeStr}.`;
   }
 
   private createRemoteRefCodeLens(
@@ -149,6 +210,36 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
       title: `🔗 ${label}`,
       command: url ? "vscode.open" : "",
       arguments: url ? [vs.Uri.parse(url)] : [],
+    });
+  }
+
+  private createStatusCodeLens(
+    document: vscodeType.TextDocument, //
+    line: number,
+    statusText: string,
+  ): vscodeType.CodeLens {
+    const vs = vscode();
+    const range = new vs.Range(line, 0, line, 0);
+
+    return new vs.CodeLens(range, {
+      title: statusText,
+      command: "",
+      arguments: [],
+    });
+  }
+
+  private createPullChangesCodeLens(
+    document: vscodeType.TextDocument, //
+    line: number,
+  ): vscodeType.CodeLens {
+    const vs = vscode();
+    const range = new vs.Range(line, 0, line, 0);
+
+    return new vs.CodeLens(range, {
+      title: "⬇ Pull Changes",
+      tooltip: "There are pending changes on the remote.",
+      command: "issuesAsCode.pullFile",
+      arguments: [document.uri],
     });
   }
 
@@ -246,4 +337,35 @@ export function isFileModified(
   } catch {
     return false;
   }
+}
+
+/**
+ * Formats a date as a relative time string (e.g., "3 minutes ago", "2 hours ago").
+ * Timezone-independent since it compares against the current time.
+ */
+export function formatRelativeTime(date: Date): string {
+  const now = Date.now();
+  const diffMs = now - date.getTime();
+
+  if (diffMs < 0) {
+    return "just now";
+  }
+
+  const seconds = Math.floor(diffMs / 1000);
+  if (seconds < 60) {
+    return "just now";
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  }
+
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
 }

@@ -31,7 +31,8 @@ export interface IssueConfig {
   fileNaming: string;
   pushOnSaveDelay: number;
   syncTargets: SyncTarget[];
-  pullInterval: number;
+  autoFetchInterval: number;
+  autoPullOnFetch: boolean;
   syncStatePath: string;
   showSyncState: boolean;
   showSyncIcons: ShowSyncIconsConfig;
@@ -97,7 +98,11 @@ export function getConfig(
           cfg.get<string>("fileNaming") ?? "{issue-num}-{issue-title}",
         pushOnSaveDelay: cfg.get<number>("pushOnSaveDelay") ?? 60,
         syncTargets,
-        pullInterval: cfg.get<number>("pullInterval") ?? 30,
+        autoFetchInterval:
+          cfg.get<number>("autoFetchInterval") ??
+          cfg.get<number>("pullInterval") ??
+          30,
+        autoPullOnFetch: cfg.get<boolean>("autoPullOnFetch") ?? false,
         syncStatePath,
         showSyncState: cfg.get<boolean>("showSyncState") ?? false,
         showSyncIcons: {
@@ -118,7 +123,8 @@ export function getConfig(
     fileNaming: "{issue-num}-{issue-title}",
     pushOnSaveDelay: 60,
     syncTargets: [],
-    pullInterval: 30,
+    autoFetchInterval: 30,
+    autoPullOnFetch: false,
     syncStatePath: path.join(workspaceFolderPath, ".issues", "sync-state.yml"),
     showSyncState: false,
     showSyncIcons: { newIssue: true, modified: true, synchronized: true },

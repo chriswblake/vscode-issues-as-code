@@ -43,6 +43,14 @@
       {
         "command": "issuesAsCode.publishFile",
         "title": "Issues as Code: Publish to Remote"
+      },
+      {
+        "command": "issuesAsCode.pullFile",
+        "title": "Issues as Code: Pull Remote Changes"
+      },
+      {
+        "command": "issuesAsCode.fetchNow",
+        "title": "Issues as Code: Fetch Now"
       }
     ],
     "configuration": {
@@ -177,10 +185,16 @@
             }
           }
         },
-        "issuesAsCode.pullInterval": {
+        "issuesAsCode.autoFetchInterval": {
           "type": "number",
           "default": 30,
-          "description": "Minutes between automatic pulls from GitHub.",
+          "description": "Minutes between automatic fetches from the remote. Fetching checks for remote changes and stores them locally without applying to task files.",
+          "scope": "resource"
+        },
+        "issuesAsCode.autoPullOnFetch": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, automatically applies remote changes to local task files after fetching, as long as there are no local modifications that would conflict.",
           "scope": "resource"
         },
         "issuesAsCode.syncStatePath": {

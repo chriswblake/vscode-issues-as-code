@@ -96,6 +96,20 @@ function registerProviders(context: vscode.ExtensionContext): void {
       decorationProvider?.clearDirty(document.uri.fsPath);
     }),
   );
+
+  // Fetch remote state when a task file is opened
+  context.subscriptions.push(
+    vscode.workspace.onDidOpenTextDocument((document) => {
+      const filePath = document.uri.fsPath;
+      if (!filePath.endsWith(".md")) {
+        return;
+      }
+      const manager = syncManagers.find((m) => m.ownsFile(filePath));
+      if (manager) {
+        void manager.fetchFile(filePath);
+      }
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +132,10 @@ function registerCommands(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
+      "issuesAsCode.fetchNow",
+      ensureManagersAndPull,
+    ),
+    vscode.commands.registerCommand(
       "issuesAsCode.pullNow",
       ensureManagersAndPull,
     ),
@@ -127,7 +145,9 @@ function registerCommands(context: vscode.ExtensionContext): void {
         const filePath = editor.document.uri.fsPath;
         const manager = syncManagers.find((m) => m.ownsFile(filePath));
         if (manager) {
-          const newPath = await manager.pushFile(filePath);
+          const newPath = await manager.pushFile(filePath, {
+            interactive: true,
+          });
           if (newPath) {
             await switchEditorToRenamedFile(filePath, newPath);
           }
@@ -157,13 +177,42 @@ function registerCommands(context: vscode.ExtensionContext): void {
         }
 
         try {
-          const newPath = await manager.pushFile(filePath);
+          const newPath = await manager.pushFile(filePath, {
+            interactive: true,
+          });
           if (newPath) {
             await switchEditorToRenamedFile(filePath, newPath);
           }
         } catch (err) {
           void vscode.window.showErrorMessage(
             `Failed to publish file: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      },
+    ),
+    vscode.commands.registerCommand(
+      "issuesAsCode.pullFile",
+      async (uri?: vscode.Uri) => {
+        const targetUri = uri ?? vscode.window.activeTextEditor?.document.uri;
+        if (!targetUri) {
+          void vscode.window.showWarningMessage("No file is open to pull.");
+          return;
+        }
+
+        const filePath = targetUri.fsPath;
+        const manager = syncManagers.find((m) => m.ownsFile(filePath));
+        if (!manager) {
+          void vscode.window.showWarningMessage(
+            "This file is not inside a managed sync target folder.",
+          );
+          return;
+        }
+
+        try {
+          await manager.pullFile(filePath);
+        } catch (err) {
+          void vscode.window.showErrorMessage(
+            `Failed to pull file: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       },
@@ -307,6 +356,7 @@ async function activateFolder(
   const unsubscribeDecorations = stateManager.onDidChange((filePath) => {
     decorationProvider?.clearDirty(filePath);
     decorationProvider?.refresh(filePath);
+    codeLensProvider?.refresh();
   });
   context.subscriptions.push({ dispose: unsubscribeDecorations });
 
@@ -356,6 +406,7 @@ async function activateFolder(
   if (decorationProvider) {
     const locations = syncManagers.map((m) => ({
       location: m.target.filesDir,
+      pluginId: m.plugin.id,
       stateManager: m.stateManager,
       readOnly: m.target.readOnly,
     }));

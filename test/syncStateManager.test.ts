@@ -849,3 +849,127 @@ suite("syncStateManager – watchForDeletion", () => {
       .catch(done);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Section: updatePluginDataOnly
+// ---------------------------------------------------------------------------
+
+suite("syncStateManager – updatePluginDataOnly", () => {
+  test("updatePluginDataOnly: updates pluginData without changing synced_at", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+    const filePath = "/issues/1.md";
+    const remote1 = makeRemoteInfo({ updated_at: "2024-01-15T10:00:00Z" });
+    await mgr.setSyncedAt(filePath, remote1, "gh-issues", "owner/repo/1");
+
+    // Act
+    const remote2 = makeRemoteInfo({ updated_at: "2024-01-16T12:00:00Z" });
+    await mgr.updatePluginDataOnly(
+      filePath,
+      remote2,
+      "gh-issues",
+      "owner/repo/1",
+    );
+
+    // Assert
+    const entry = mgr.getEntry(filePath);
+    assert.strictEqual(
+      entry?.plugins?.["gh-issues"]?.synced_at,
+      "2024-01-15T10:00:00Z",
+      "synced_at should not change",
+    );
+    const pluginData = mgr.getPluginData(filePath, "gh-issues");
+    assert.strictEqual(
+      pluginData?.updated_at,
+      "2024-01-16T12:00:00Z",
+      "pluginData.updated_at should reflect the newer remote state",
+    );
+  });
+
+  test("updatePluginDataOnly: stores last_modified_by when provided", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+    const filePath = "/issues/2.md";
+    const remote1 = makeRemoteInfo();
+    await mgr.setSyncedAt(filePath, remote1, "gh-issues", "owner/repo/2");
+
+    // Act
+    const remote2 = makeRemoteInfo({
+      updated_at: "2024-01-20T09:00:00Z",
+      last_modified_by: "user123",
+    });
+    await mgr.updatePluginDataOnly(
+      filePath,
+      remote2,
+      "gh-issues",
+      "owner/repo/2",
+    );
+
+    // Assert
+    const pluginData = mgr.getPluginData(filePath, "gh-issues");
+    assert.strictEqual(pluginData?.last_modified_by, "user123");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section: hasPendingRemoteChanges
+// ---------------------------------------------------------------------------
+
+suite("syncStateManager – hasPendingRemoteChanges", () => {
+  test("hasPendingRemoteChanges: returns false when synced_at equals pluginData.updated_at", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+    const filePath = "/issues/1.md";
+    const remote = makeRemoteInfo({ updated_at: "2024-01-15T10:00:00Z" });
+    await mgr.setSyncedAt(filePath, remote, "gh-issues", "owner/repo/1");
+
+    // Act
+    const result = mgr.hasPendingRemoteChanges(filePath, "gh-issues");
+
+    // Assert
+    assert.strictEqual(result, false);
+  });
+
+  test("hasPendingRemoteChanges: returns true when pluginData.updated_at is newer than synced_at", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+    const filePath = "/issues/1.md";
+    const remote1 = makeRemoteInfo({ updated_at: "2024-01-15T10:00:00Z" });
+    await mgr.setSyncedAt(filePath, remote1, "gh-issues", "owner/repo/1");
+
+    const remote2 = makeRemoteInfo({ updated_at: "2024-01-16T12:00:00Z" });
+    await mgr.updatePluginDataOnly(
+      filePath,
+      remote2,
+      "gh-issues",
+      "owner/repo/1",
+    );
+
+    // Act
+    const result = mgr.hasPendingRemoteChanges(filePath, "gh-issues");
+
+    // Assert
+    assert.strictEqual(result, true);
+  });
+
+  test("hasPendingRemoteChanges: returns false for unknown file", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+
+    // Act
+    const result = mgr.hasPendingRemoteChanges("/nonexistent.md", "gh-issues");
+
+    // Assert
+    assert.strictEqual(result, false);
+  });
+});

@@ -5,6 +5,7 @@ import * as path from "path";
 import {
   findFrontmatterSectionLine,
   isFileModified,
+  formatRelativeTime,
 } from "../src/publishCodeLensProvider";
 
 // ---------------------------------------------------------------------------
@@ -155,5 +156,66 @@ suite("publishCodeLensProvider – isFileModified", () => {
       false,
       "missing file is not considered modified",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 3: formatRelativeTime
+// ---------------------------------------------------------------------------
+
+suite("publishCodeLensProvider – formatRelativeTime", () => {
+  test("formatRelativeTime: returns 'just now' for very recent timestamps", () => {
+    // Arrange
+    const date = new Date(Date.now() - 10_000);
+
+    // Act
+    const result = formatRelativeTime(date);
+
+    // Assert
+    assert.strictEqual(result, "just now");
+  });
+
+  test("formatRelativeTime: returns minutes ago for timestamps within the hour", () => {
+    // Arrange
+    const date = new Date(Date.now() - 5 * 60 * 1000);
+
+    // Act
+    const result = formatRelativeTime(date);
+
+    // Assert
+    assert.strictEqual(result, "5 minutes ago");
+  });
+
+  test("formatRelativeTime: returns hours ago for timestamps within a day", () => {
+    // Arrange
+    const date = new Date(Date.now() - 3 * 60 * 60 * 1000);
+
+    // Act
+    const result = formatRelativeTime(date);
+
+    // Assert
+    assert.strictEqual(result, "3 hours ago");
+  });
+
+  test("formatRelativeTime: returns days ago for older timestamps", () => {
+    // Arrange
+    const date = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+
+    // Act
+    const result = formatRelativeTime(date);
+
+    // Assert
+    assert.strictEqual(result, "2 days ago");
+  });
+
+  test("formatRelativeTime: returns 'just now' for future timestamps", () => {
+    // Arrange
+    const date = new Date(Date.now() + 60_000);
+
+    // Act
+    const result = formatRelativeTime(date);
+
+    // Assert
+    assert.strictEqual(result, "just now");
   });
 });
