@@ -448,7 +448,8 @@ export class SyncManager {
     // Unpublished files require explicit action via the CodeLens or command.
     try {
       const { frontmatter } = await readIssueFile(filePath);
-      if (this.plugin.getRemoteId(frontmatter) === undefined) {
+      const stateEntry = this.stateManager.getEntry(filePath);
+      if (this.plugin.getRemoteId(frontmatter, stateEntry) === undefined) {
         return;
       }
     } catch {
