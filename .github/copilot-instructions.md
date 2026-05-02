@@ -26,6 +26,10 @@ Use intuitive names for variables, functions, etc.
 
 Do not worry about supporting previous versions of the code. Refactor and simplify as needed. There have been no releases yet.
 
+fetching - collecting data from the remote and storing it locally, but not yet applying it to the task files. Pending changes are stored in the sync state file and surfaced in the UI. The user can choose when to apply them.
+
+pulling - applying fetched changes to the local task files. This can be done automatically or via user action.
+
 ### Plugin architecture
 
 Do not directly reference plugin specific logic in the core program.
@@ -44,7 +48,7 @@ Example:
 function add(a, b) {
   return a + b;
 }
-test("add: 2 positive integers", () => {
+test('add: 2 positive integers', () => {
   // Verifies that basic math operations work as expected.
 
   // Arrange
