@@ -75,4 +75,21 @@ export class TickTickPlugin implements PrimarySyncPlugin {
     const path = require("path");
     return path.basename(filePath, path.extname(filePath)).trim() || "New task";
   }
+
+  validatePulledItems(
+    items: PullItem[],
+    _pluginConfig: Record<string, unknown>,
+  ): PullItem[] {
+    // TickTick plugin has no filter criteria, so all items are valid.
+    return items;
+  }
+
+  fileMatchesTargetConfig(
+    _frontmatter: IssueFrontmatter,
+    _pluginConfig: Record<string, unknown>,
+    _syncedAt?: string,
+  ): boolean {
+    // TickTick plugin has no filter criteria, so all files are valid.
+    return true;
+  }
 }

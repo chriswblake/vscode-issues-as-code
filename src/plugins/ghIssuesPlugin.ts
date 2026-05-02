@@ -487,4 +487,35 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
   ): string {
     return inferTitle(filePath, frontmatter, body);
   }
+
+  validatePulledItems(
+    items: PullItem[],
+    pluginConfig: Record<string, unknown>,
+  ): PullItem[] {
+    const config = pluginConfig as unknown as GhIssuesPluginConfig;
+    const filters = config.filters;
+
+    // Filter items to keep only those matching the target's filter criteria.
+    return items.filter((item) => {
+      const frontmatter: IssueFrontmatter = {
+        [this.id]: item.frontmatter,
+      };
+      return matchesFilter(
+        frontmatter,
+        filters,
+        item.remoteInfo.updated_at,
+        item.remoteInfo.closed_at,
+      );
+    });
+  }
+
+  fileMatchesTargetConfig(
+    frontmatter: IssueFrontmatter,
+    pluginConfig: Record<string, unknown>,
+    syncedAt?: string,
+  ): boolean {
+    const config = pluginConfig as unknown as GhIssuesPluginConfig;
+    const filters = config.filters;
+    return matchesFilter(frontmatter, filters, syncedAt, null);
+  }
 }

@@ -1,41 +1,32 @@
-import * as path from "path";
-import * as fs from "fs";
-import type * as vscodeType from "vscode";
+import * as path from 'path';
+import * as fs from 'fs';
+import type * as vscodeType from 'vscode';
 import {
   readIssueFile, //
   writeIssueFile,
   serializeIssueFile,
   type IssueFrontmatter,
-} from "./fileManager";
-import { type SyncTarget, type IssueConfig } from "./configManager";
-import { SyncStateManager, type RemoteIssueInfo } from "./syncStateManager";
-import { type PrimarySyncPlugin, type PullItem } from "./plugins/syncPlugin";
+} from './fileManager';
+import { type SyncTarget, type IssueConfig } from './configManager';
+import { SyncStateManager, type RemoteIssueInfo } from './syncStateManager';
+import { type PrimarySyncPlugin, type PullItem } from './plugins/syncPlugin';
 
 // Lazy vscode import so unit tests can stub it out
 function vscode(): typeof vscodeType {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require("vscode");
+  return require('vscode');
 }
 
 /**
  * Closes the editor tab showing the old file and opens the new (renamed) file.
  * Called when a push results in a filename change.
  */
-export async function switchEditorToRenamedFile(
-  oldPath: string,
-  newPath: string,
-): Promise<void> {
+export async function switchEditorToRenamedFile(oldPath: string, newPath: string): Promise<void> {
   const vs = vscode();
   const oldUri = vs.Uri.file(oldPath);
   const newUri = vs.Uri.file(newPath);
 
-  const tabToClose = vs.window.tabGroups.all
-    .flatMap((group) => group.tabs)
-    .find(
-      (tab) =>
-        tab.input instanceof vs.TabInputText &&
-        tab.input.uri.fsPath === oldUri.fsPath,
-    );
+  const tabToClose = vs.window.tabGroups.all.flatMap((group) => group.tabs).find((tab) => tab.input instanceof vs.TabInputText && tab.input.uri.fsPath === oldUri.fsPath);
   if (tabToClose) {
     await vs.window.tabGroups.close(tabToClose);
   }
@@ -141,9 +132,7 @@ export class SyncManager {
       return;
     }
 
-    const pluginConfig = this.target[this.plugin.id] as
-      | Record<string, unknown>
-      | undefined;
+    const pluginConfig = this.target[this.plugin.id] as Record<string, unknown> | undefined;
     if (!pluginConfig) {
       return;
     }
@@ -153,7 +142,12 @@ export class SyncManager {
       stateManager: this.stateManager,
     };
 
-    const items = await this.plugin.pull(pluginConfig, context);
+    let items = await this.plugin.pull(pluginConfig, context);
+
+    // Validate pulled items against target config to filter out non-matching items.
+    // This ensures orphaned entries are not created if the plugin returns unexpected results.
+    items = this.plugin.validatePulledItems(items, pluginConfig);
+
     const naming = this.target.naming ?? this.config.fileNaming;
     const pulledRemoteKeys = new Set(items.map((i) => i.remoteKey));
 
@@ -162,8 +156,7 @@ export class SyncManager {
         return;
       }
 
-      const expectedFileName =
-        this.plugin.buildFileName(item.namingTokens, naming) + ".md";
+      const expectedFileName = this.plugin.buildFileName(item.namingTokens, naming) + '.md';
       const expectedPath = path.join(this.target.filesDir, expectedFileName);
 
       // Look for existing file tracking this remote item (by unique remoteKey)
@@ -171,11 +164,7 @@ export class SyncManager {
 
       // Fallback: plugin-specific heuristic for files not yet in sync state
       if (!existingPath) {
-        existingPath = await this.plugin.findExistingFile(
-          this.target.filesDir,
-          item.remoteKey,
-          naming,
-        );
+        existingPath = await this.plugin.findExistingFile(this.target.filesDir, item.remoteKey, naming);
       }
 
       if (existingPath !== null && existingPath !== expectedPath) {
@@ -193,15 +182,24 @@ export class SyncManager {
   }
 
   /** Removes state entries and task files that no longer exist in the latest remote pull. */
-  private async cleanStaleEntries(
-    pulledRemoteKeys: Set<string>,
-  ): Promise<void> {
-    const stateEntries = this.stateManager.getFilesUnderLocation(
-      this.target.filesDir,
-    );
+  private async cleanStaleEntries(pulledRemoteKeys: Set<string>): Promise<void> {
+    const stateEntries = this.stateManager.getFilesUnderLocation(this.target.filesDir);
     for (const [filePath, entry] of stateEntries) {
       const pluginRef = entry.plugins?.[this.plugin.id];
-      if (pluginRef && !pulledRemoteKeys.has(pluginRef.key)) {
+      if (!pluginRef) {
+        continue;
+      }
+
+      // Remove if not in the latest pulled set
+      if (!pulledRemoteKeys.has(pluginRef.key)) {
+        await this.unlinkSuppressed(filePath);
+        continue;
+      }
+
+      // Also validate that the entry still matches the target config.
+      // This removes orphaned entries if the filter criteria no longer applies.
+      const pluginConfig = this.target[this.plugin.id] as Record<string, unknown> | undefined;
+      if (pluginConfig && !(await this.entryMatchesTargetConfig(filePath, pluginConfig))) {
         await this.unlinkSuppressed(filePath);
       }
     }
@@ -209,9 +207,25 @@ export class SyncManager {
 
   /** Finds an existing file by its remoteKey in the sync state (unique across repos). */
   private findExistingFileByKey(remoteKey: string): string | null {
-    return (
-      this.stateManager.findFileByPluginKey(this.plugin.id, remoteKey) ?? null
-    );
+    return this.stateManager.findFileByPluginKey(this.plugin.id, remoteKey) ?? null;
+  }
+
+  /**
+   * Checks if a file's content matches the target config criteria.
+   * Delegates to the plugin for config-specific validation logic.
+   */
+  private async entryMatchesTargetConfig(filePath: string, pluginConfig: Record<string, unknown>): Promise<boolean> {
+    try {
+      const { frontmatter } = await readIssueFile(filePath);
+      const stateEntry = this.stateManager.getEntry(filePath);
+      const pluginRef = stateEntry?.plugins?.[this.plugin.id];
+      const syncedAt = pluginRef?.synced_at;
+
+      return this.plugin.fileMatchesTargetConfig(frontmatter, pluginConfig, syncedAt);
+    } catch {
+      // If file can't be read, consider it invalid
+      return false;
+    }
   }
 
   /** Pull a single item: for readOnly targets always overwrite; otherwise auto-accept one-directional changes, write conflict markers for mixed. */
@@ -225,7 +239,7 @@ export class SyncManager {
       return;
     }
 
-    const localContent = await fs.promises.readFile(localPath, "utf8");
+    const localContent = await fs.promises.readFile(localPath, 'utf8');
 
     // Skip if the user is currently resolving a merge conflict (readOnly targets skip this)
     if (!this.target.readOnly && hasConflictMarkers(localContent)) {
@@ -238,13 +252,8 @@ export class SyncManager {
     const cloudContent = serializeIssueFile(cloudFrontmatter, item.body);
     const kind = classifyDiff(localContent, cloudContent);
 
-    if (kind === "identical") {
-      await this.stateManager.setSyncedAt(
-        localPath,
-        item.remoteInfo,
-        this.plugin.id,
-        item.remoteKey,
-      );
+    if (kind === 'identical') {
+      await this.stateManager.setSyncedAt(localPath, item.remoteInfo, this.plugin.id, item.remoteKey);
       return;
     }
 
@@ -254,42 +263,29 @@ export class SyncManager {
       return;
     }
 
-    if (
-      !isConflict(
-        item.remoteInfo.updated_at,
-        this.stateManager.getSyncedAt(localPath),
-      )
-    ) {
+    if (!isConflict(item.remoteInfo.updated_at, this.stateManager.getSyncedAt(localPath))) {
       // Cloud hasn't changed since last sync — local edits are pending push
       return;
     }
 
-    if (kind === "additions-only" || kind === "removals-only") {
+    if (kind === 'additions-only' || kind === 'removals-only') {
       await this.writePullItemSuppressed(localPath, item);
       return;
     }
 
     // Mixed: write conflict markers
-    await this.writeConflictMarkers(
-      localPath,
-      localContent,
-      cloudContent,
-      item.remoteInfo,
-      item.remoteKey,
-    );
+    await this.writeConflictMarkers(localPath, localContent, cloudContent, item.remoteInfo, item.remoteKey);
   }
 
   /** Push a single file to the remote service via the plugin. */
   async pushFile(filePath: string): Promise<string | undefined> {
-    const raw = await fs.promises.readFile(filePath, "utf8");
+    const raw = await fs.promises.readFile(filePath, 'utf8');
     if (hasConflictMarkers(raw)) {
       return undefined;
     }
 
     const { frontmatter, body } = await readIssueFile(filePath);
-    const pluginConfig = this.target[this.plugin.id] as
-      | Record<string, unknown>
-      | undefined;
+    const pluginConfig = this.target[this.plugin.id] as Record<string, unknown> | undefined;
     if (!pluginConfig) {
       return undefined;
     }
@@ -304,25 +300,13 @@ export class SyncManager {
     let existingRemoteKey: string | undefined;
     if (remoteId !== undefined) {
       // Existing item — check for conflicts before pushing
-      existingRemoteKey = this.plugin.getRemoteKey(
-        frontmatter,
-        pluginConfig,
-        stateEntry,
-      );
+      existingRemoteKey = this.plugin.getRemoteKey(frontmatter, pluginConfig, stateEntry);
 
       // Re-pull to get latest remote state for conflict check
       const items = await this.plugin.pull(pluginConfig, context);
-      const cloudItem = existingRemoteKey
-        ? items.find((i) => i.remoteKey === existingRemoteKey)
-        : undefined;
+      const cloudItem = existingRemoteKey ? items.find((i) => i.remoteKey === existingRemoteKey) : undefined;
 
-      if (
-        cloudItem &&
-        isConflict(
-          cloudItem.remoteInfo.updated_at,
-          this.stateManager.getSyncedAt(filePath),
-        )
-      ) {
+      if (cloudItem && isConflict(cloudItem.remoteInfo.updated_at, this.stateManager.getSyncedAt(filePath))) {
         await this.handlePullConflict(filePath, cloudItem);
         return undefined;
       }
@@ -338,18 +322,11 @@ export class SyncManager {
       }
     }
 
-    const result = await this.plugin.push(
-      frontmatter,
-      body,
-      pluginConfig,
-      context,
-      existingRemoteKey,
-    );
+    const result = await this.plugin.push(frontmatter, body, pluginConfig, context, existingRemoteKey);
 
     // Write updated file with server-assigned data
     const naming = this.target.naming ?? this.config.fileNaming;
-    const expectedFileName =
-      this.plugin.buildFileName(result.namingTokens, naming) + ".md";
+    const expectedFileName = this.plugin.buildFileName(result.namingTokens, naming) + '.md';
     const expectedPath = path.join(this.target.filesDir, expectedFileName);
 
     const updatedFrontmatter: IssueFrontmatter = {
@@ -357,13 +334,7 @@ export class SyncManager {
       [this.plugin.id]: result.frontmatter,
     };
 
-    await this.writeFileSuppressed(
-      expectedPath,
-      updatedFrontmatter,
-      result.body,
-      result.remoteInfo,
-      result.remoteKey,
-    );
+    await this.writeFileSuppressed(expectedPath, updatedFrontmatter, result.body, result.remoteInfo, result.remoteKey);
 
     if (expectedPath !== filePath) {
       await this.unlinkSuppressed(filePath);
@@ -390,10 +361,8 @@ export class SyncManager {
         })
         .catch((err) => {
           console.error(`[issuesAsCode] push failed for "${filePath}":`, err);
-          const message = err instanceof Error ? err.message : "Unknown error";
-          void vscode().window.showErrorMessage(
-            `Issue sync push failed for ${path.basename(filePath)}: ${message}`,
-          );
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          void vscode().window.showErrorMessage(`Issue sync push failed for ${path.basename(filePath)}: ${message}`);
         });
     }, this.config.pushOnSaveDelay * 1000);
 
@@ -417,33 +386,20 @@ export class SyncManager {
   }
 
   /** Handle conflict detected during push by comparing with a pulled item. */
-  private async handlePullConflict(
-    localPath: string,
-    cloudItem: PullItem,
-  ): Promise<void> {
+  private async handlePullConflict(localPath: string, cloudItem: PullItem): Promise<void> {
     const cloudFrontmatter: IssueFrontmatter = {
       [this.plugin.id]: cloudItem.frontmatter,
     };
     const cloudContent = serializeIssueFile(cloudFrontmatter, cloudItem.body);
-    const localContent = await fs.promises.readFile(localPath, "utf8");
+    const localContent = await fs.promises.readFile(localPath, 'utf8');
 
     const kind = classifyDiff(localContent, cloudContent);
-    if (
-      kind === "identical" ||
-      kind === "additions-only" ||
-      kind === "removals-only"
-    ) {
+    if (kind === 'identical' || kind === 'additions-only' || kind === 'removals-only') {
       await this.writePullItemSuppressed(localPath, cloudItem);
       return;
     }
 
-    await this.writeConflictMarkers(
-      localPath,
-      localContent,
-      cloudContent,
-      cloudItem.remoteInfo,
-      cloudItem.remoteKey,
-    );
+    await this.writeConflictMarkers(localPath, localContent, cloudContent, cloudItem.remoteInfo, cloudItem.remoteKey);
   }
 
   /** Writes merge conflict markers into localPath and advances the sync timestamp. */
@@ -457,21 +413,14 @@ export class SyncManager {
     const conflictContent = generateConflictContent(localContent, cloudContent);
     this.suppress(localPath, 1);
     try {
-      await fs.promises.writeFile(localPath, conflictContent, "utf8");
+      await fs.promises.writeFile(localPath, conflictContent, 'utf8');
       await this.markExtensionWrite(localPath);
-      await this.stateManager.setSyncedAt(
-        localPath,
-        remoteInfo,
-        this.plugin.id,
-        remoteKey,
-      );
+      await this.stateManager.setSyncedAt(localPath, remoteInfo, this.plugin.id, remoteKey);
     } finally {
       this.suppress(localPath, -1);
     }
 
-    void vscode().window.showWarningMessage(
-      `${path.basename(localPath)} has conflicting changes. Resolve the conflict markers, then save.`,
-    );
+    void vscode().window.showWarningMessage(`${path.basename(localPath)} has conflicting changes. Resolve the conflict markers, then save.`);
   }
 
   /** Handles a newly created .md file — never auto-pushes (see CodeLens provider). */
@@ -544,20 +493,11 @@ export class SyncManager {
   }
 
   /** Writes a pulled item's data while suppressing watcher events. */
-  private async writePullItemSuppressed(
-    filePath: string,
-    item: PullItem,
-  ): Promise<void> {
+  private async writePullItemSuppressed(filePath: string, item: PullItem): Promise<void> {
     const frontmatter: IssueFrontmatter = {
       [this.plugin.id]: item.frontmatter,
     };
-    await this.writeFileSuppressed(
-      filePath,
-      frontmatter,
-      item.body,
-      item.remoteInfo,
-      item.remoteKey,
-    );
+    await this.writeFileSuppressed(filePath, frontmatter, item.body, item.remoteInfo, item.remoteKey);
   }
 
   /** Writes a file while suppressing watcher events and updating sync state. */
@@ -576,12 +516,7 @@ export class SyncManager {
       }
       await writeIssueFile(filePath, frontmatter, body);
       await this.markExtensionWrite(filePath);
-      await this.stateManager.setSyncedAt(
-        filePath,
-        remoteInfo,
-        this.plugin.id,
-        remoteKey,
-      );
+      await this.stateManager.setSyncedAt(filePath, remoteInfo, this.plugin.id, remoteKey);
       // Enforce read-only permission after writing
       if (this.target.readOnly) {
         await makeFileReadOnly(filePath);
@@ -614,10 +549,7 @@ export function hasConflictMarkers(content: string): boolean {
 }
 
 /** Pure helper: returns true if cloud version is newer than local synced_at. */
-export function isConflict(
-  cloudUpdatedAt: string,
-  syncedAt: string | undefined,
-): boolean {
+export function isConflict(cloudUpdatedAt: string, syncedAt: string | undefined): boolean {
   if (!syncedAt) {
     return false;
   }
@@ -628,29 +560,21 @@ export function isConflict(
  * Returns true when a file event still points at the same mtime as an
  * extension-authored write (allowing small filesystem timestamp jitter).
  */
-export function isExtensionWriteEvent(
-  eventMtimeMs: number,
-  lastExtensionWriteMtimeMs: number,
-): boolean {
+export function isExtensionWriteEvent(eventMtimeMs: number, lastExtensionWriteMtimeMs: number): boolean {
   const MTIME_JITTER_MS = 1;
   return eventMtimeMs <= lastExtensionWriteMtimeMs + MTIME_JITTER_MS;
 }
 
 // Diff helpers
 
-type DiffLine = { type: "equal" | "added" | "removed"; line: string };
+type DiffLine = { type: 'equal' | 'added' | 'removed'; line: string };
 
 /** LCS-based line diff. 'added' = in cloud only, 'removed' = in local only. */
-export function computeLineDiff(
-  localLines: string[],
-  cloudLines: string[],
-): DiffLine[] {
+export function computeLineDiff(localLines: string[], cloudLines: string[]): DiffLine[] {
   const m = localLines.length;
   const n = cloudLines.length;
 
-  const dp: number[][] = Array.from({ length: m + 1 }, () =>
-    new Array(n + 1).fill(0),
-  );
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
   for (let i = m - 1; i >= 0; i--) {
     for (let j = n - 1; j >= 0; j--) {
       if (localLines[i] === cloudLines[j]) {
@@ -666,32 +590,29 @@ export function computeLineDiff(
   let j = 0;
   while (i < m && j < n) {
     if (localLines[i] === cloudLines[j]) {
-      result.push({ type: "equal", line: localLines[i] });
+      result.push({ type: 'equal', line: localLines[i] });
       i++;
       j++;
     } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      result.push({ type: "removed", line: localLines[i] });
+      result.push({ type: 'removed', line: localLines[i] });
       i++;
     } else {
-      result.push({ type: "added", line: cloudLines[j] });
+      result.push({ type: 'added', line: cloudLines[j] });
       j++;
     }
   }
   while (i < m) {
-    result.push({ type: "removed", line: localLines[i++] });
+    result.push({ type: 'removed', line: localLines[i++] });
   }
   while (j < n) {
-    result.push({ type: "added", line: cloudLines[j++] });
+    result.push({ type: 'added', line: cloudLines[j++] });
   }
 
   return result;
 }
 
 /** Returns whether a cloud→local change is additions-only, removals-only, mixed, or identical. */
-export function classifyDiff(
-  localContent: string,
-  cloudContent: string,
-): "identical" | "additions-only" | "removals-only" | "mixed" {
+export function classifyDiff(localContent: string, cloudContent: string): 'identical' | 'additions-only' | 'removals-only' | 'mixed' {
   const diff = computeLineDiff(
     localContent.split(/\r?\n/), //
     cloudContent.split(/\r?\n/),
@@ -700,21 +621,18 @@ export function classifyDiff(
   let hasAdditions = false;
   let hasRemovals = false;
   for (const item of diff) {
-    if (item.type === "added") hasAdditions = true;
-    if (item.type === "removed") hasRemovals = true;
+    if (item.type === 'added') hasAdditions = true;
+    if (item.type === 'removed') hasRemovals = true;
   }
 
-  if (!hasAdditions && !hasRemovals) return "identical";
-  if (hasAdditions && !hasRemovals) return "additions-only";
-  if (!hasAdditions && hasRemovals) return "removals-only";
-  return "mixed";
+  if (!hasAdditions && !hasRemovals) return 'identical';
+  if (hasAdditions && !hasRemovals) return 'additions-only';
+  if (!hasAdditions && hasRemovals) return 'removals-only';
+  return 'mixed';
 }
 
 /** Produces file content with standard merge conflict markers for all diff hunks. */
-export function generateConflictContent(
-  localContent: string,
-  cloudContent: string,
-): string {
+export function generateConflictContent(localContent: string, cloudContent: string): string {
   const diff = computeLineDiff(
     localContent.split(/\r?\n/), //
     cloudContent.split(/\r?\n/),
@@ -723,27 +641,27 @@ export function generateConflictContent(
   const output: string[] = [];
   let i = 0;
   while (i < diff.length) {
-    if (diff[i].type === "equal") {
+    if (diff[i].type === 'equal') {
       output.push(diff[i].line);
       i++;
     } else {
       // Collect a contiguous conflict hunk
       const localSection: string[] = [];
       const cloudSection: string[] = [];
-      while (i < diff.length && diff[i].type !== "equal") {
-        if (diff[i].type === "removed") localSection.push(diff[i].line);
+      while (i < diff.length && diff[i].type !== 'equal') {
+        if (diff[i].type === 'removed') localSection.push(diff[i].line);
         else cloudSection.push(diff[i].line);
         i++;
       }
-      output.push("<<<<<<< Local");
+      output.push('<<<<<<< Local');
       output.push(...localSection);
-      output.push("=======");
+      output.push('=======');
       output.push(...cloudSection);
-      output.push(">>>>>>> Remote");
+      output.push('>>>>>>> Remote');
     }
   }
 
-  return output.join("\n");
+  return output.join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -753,13 +671,13 @@ export function generateConflictContent(
 /** Identity key for a sync target: based on plugin configuration so changing filesDir triggers a move. */
 function targetIdentity(target: SyncTarget): string {
   // Find plugin config keys (anything that's not a core SyncTarget field)
-  const coreFields = new Set(["filesDir", "naming"]);
+  const coreFields = new Set(['filesDir', 'naming']);
   for (const key of Object.keys(target)) {
     if (coreFields.has(key)) {
       continue;
     }
     const pluginConfig = target[key];
-    if (pluginConfig && typeof pluginConfig === "object") {
+    if (pluginConfig && typeof pluginConfig === 'object') {
       return `${key}||${JSON.stringify(pluginConfig)}`;
     }
   }
@@ -814,10 +732,7 @@ async function moveTargetFiles(
   await fs.promises.mkdir(newTarget.filesDir, { recursive: true });
 
   for (const [oldFilePath, entry] of entries) {
-    const newFilePath = path.join(
-      newTarget.filesDir,
-      path.basename(oldFilePath),
-    );
+    const newFilePath = path.join(newTarget.filesDir, path.basename(oldFilePath));
 
     // Copy to new location; source may already be gone if this is crash recovery
     try {

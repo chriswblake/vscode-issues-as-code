@@ -134,6 +134,26 @@ export interface PrimarySyncPlugin {
     frontmatter: IssueFrontmatter,
     body: string,
   ): string;
+
+  /**
+   * Filters pulled items to keep only those matching the target config.
+   * Removes items that don't match the target's filter criteria.
+   * This prevents orphaned entries when the plugin returns unexpected results.
+   */
+  validatePulledItems(
+    items: PullItem[],
+    pluginConfig: Record<string, unknown>,
+  ): PullItem[];
+
+  /**
+   * Checks if a file's content matches the target config criteria.
+   * Used to identify and remove orphaned entries that no longer match filters.
+   */
+  fileMatchesTargetConfig(
+    frontmatter: IssueFrontmatter,
+    pluginConfig: Record<string, unknown>,
+    syncedAt?: string,
+  ): boolean;
 }
 
 // ---------------------------------------------------------------------------
