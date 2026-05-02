@@ -14,6 +14,7 @@ import {
   initializePlugins,
   registerPluginCommands,
   detectDefaultTargets,
+  persistDefaultTargets,
 } from "./plugins/loader";
 import {
   getPrimaryPlugin,
@@ -229,9 +230,16 @@ async function doReinitializeAllFolders(
       const newConfig = getConfig(folder.uri.fsPath, folder);
       let newTargets = newConfig.syncTargets;
       if (newTargets.length === 0) {
-        const detected = await detectDefaultTargets(folder);
-        if (detected) {
-          newTargets = detected;
+        const persisted = await persistDefaultTargets(folder);
+        if (persisted) {
+          const refreshed = getConfig(folder.uri.fsPath, folder);
+          newTargets = refreshed.syncTargets;
+        }
+        if (newTargets.length === 0) {
+          const detected = await detectDefaultTargets(folder);
+          if (detected) {
+            newTargets = detected;
+          }
         }
       }
       await reconcileTargetChanges(old.targets, newTargets, old.stateManager);
@@ -264,14 +272,24 @@ async function activateFolder(
 ): Promise<void> {
   const config = getConfig(folder.uri.fsPath, folder);
 
-  // Use explicitly configured targets; fall back to plugin-detected defaults
+  // Use explicitly configured targets; fall back to persisting defaults
   let targets = config.syncTargets;
   if (targets.length === 0) {
-    const detected = await detectDefaultTargets(folder);
-    if (!detected) {
-      return;
+    // Persist open-issues target to workspace settings for first-time setup
+    const persisted = await persistDefaultTargets(folder);
+    if (persisted) {
+      // Re-read config to get resolved targets with absolute paths
+      const refreshed = getConfig(folder.uri.fsPath, folder);
+      targets = refreshed.syncTargets;
     }
-    targets = detected;
+    if (targets.length === 0) {
+      // Fall back to ephemeral detected defaults if persistence wasn't possible
+      const detected = await detectDefaultTargets(folder);
+      if (!detected) {
+        return;
+      }
+      targets = detected;
+    }
   }
 
   await ensureGitignore(folder.uri.fsPath, [

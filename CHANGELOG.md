@@ -18,6 +18,8 @@
 
 ### Added
 
+- **Command: "Issues as Code: Add Sync Target - Open issues on this repository"** — Adds a sync target for all open issues on the detected workspace repository. Replaces the previous "Add Open Issues Default Config" command.
+- **Auto-add default sync target**: When no sync targets are configured and a GitHub remote is detected, the extension automatically adds an open-issues sync target to workspace settings on first activation.
 - **Command: "Issues as Code: Add setting - My open issues on GitHub"** — Adds a cross-repo sync target for open issues assigned to the authenticated user across GitHub.
 - **Command: "Issues as Code: Add setting - My open issues on this repository"** — Adds a sync target for the authenticated user's open issues on the detected workspace repository.
 - **Command: "Issues as Code: Publish to Remote"** — Explicitly publishes a local file to the configured remote service.

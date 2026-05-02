@@ -29,16 +29,16 @@
         "title": "Issues as Code: Refresh All"
       },
       {
-        "command": "issuesAsCode.addOpenIssuesDefaultConfig",
-        "title": "Issues as Code: Add Open Issues Default Config"
+        "command": "issuesAsCode.addSyncTargetRepoIssues",
+        "title": "Issues as Code: Add Sync Target - Open issues on this repository"
       },
       {
-        "command": "issuesAsCode.addMyIssuesOnGitHub",
-        "title": "Issues as Code: Add setting - My open issues on GitHub"
+        "command": "issuesAsCode.addSyncTargetMyIssuesOnGitHub",
+        "title": "Issues as Code: Add Sync Target - My open issues on GitHub"
       },
       {
-        "command": "issuesAsCode.addMyIssuesOnThisRepo",
-        "title": "Issues as Code: Add setting - My open issues on this repository"
+        "command": "issuesAsCode.addSyncTargetAssignedRepoIssues",
+        "title": "Issues as Code: Add Sync Target - My open issues on this repository"
       },
       {
         "command": "issuesAsCode.publishFile",
@@ -63,7 +63,7 @@
         "issuesAsCode.syncTargets": {
           "type": "array",
           "default": [],
-          "description": "List of sync targets. Each entry defines a local folder and one or more plugin configurations (e.g. gh-issues). When empty, the extension falls back to auto-detecting the workspace repository.",
+          "description": "List of sync targets. Each entry defines a local folder and one or more plugin configurations (e.g. gh-issues). When empty and a GitHub remote is detected, the extension automatically adds a default open-issues target to workspace settings.",
           "scope": "resource",
           "items": {
             "type": "object",

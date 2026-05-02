@@ -57,3 +57,19 @@ export async function detectDefaultTargets(workspaceFolder: {
   }
   return null;
 }
+
+/**
+ * Persist default sync targets to workspace settings if none are configured.
+ * Tries each plugin until one persists defaults.
+ */
+export async function persistDefaultTargets(workspaceFolder: {
+  uri: { fsPath: string };
+}): Promise<SyncTarget[] | null> {
+  for (const b of allBootstraps) {
+    const targets = await b.persistDefaults(workspaceFolder);
+    if (targets && targets.length > 0) {
+      return targets;
+    }
+  }
+  return null;
+}

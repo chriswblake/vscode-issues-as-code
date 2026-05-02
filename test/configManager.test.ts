@@ -12,7 +12,10 @@ import {
   ensureGitignore,
   resolveWorkspacePath,
 } from "../src/configManager";
-import { defaultSyncTargets } from "../src/plugins/ghIssuesBootstrap";
+import {
+  defaultSyncTargets,
+  openIssuesTarget,
+} from "../src/plugins/ghIssuesBootstrap";
 
 // ---------------------------------------------------------------------------
 // Section 1: resolveQuery – basic {today-Nd} substitution
@@ -275,6 +278,60 @@ suite("configManager – defaultSyncTargets", () => {
     for (const t of targets) {
       assert.ok(t.naming?.includes("{gh-issues.number}"));
     }
+  });
+});
+
+// (repoInfoFromTarget tests removed — function moved to plugin-specific code)
+
+// ---------------------------------------------------------------------------
+// Section 5b: openIssuesTarget
+// ---------------------------------------------------------------------------
+suite("configManager – openIssuesTarget", () => {
+  test("openIssuesTarget: returns a target with relative filesDir", () => {
+    // Arrange & Act
+    const target = openIssuesTarget("myorg", "myrepo");
+
+    // Assert
+    assert.strictEqual(target.filesDir, ".issues/open");
+  });
+
+  test("openIssuesTarget: uses open state filter", () => {
+    // Arrange & Act
+    const target = openIssuesTarget("myorg", "myrepo");
+
+    // Assert
+    assert.strictEqual(((target["gh-issues"] as any)?.filters).state, "open");
+  });
+
+  test("openIssuesTarget: sets repository in owner/repo format", () => {
+    // Arrange & Act
+    const target = openIssuesTarget("myorg", "myrepo");
+
+    // Assert
+    assert.strictEqual(
+      ((target["gh-issues"] as any)?.filters).repository,
+      "myorg/myrepo",
+    );
+  });
+
+  test("openIssuesTarget: uses gh-issues naming tokens", () => {
+    // Arrange & Act
+    const target = openIssuesTarget("myorg", "myrepo");
+
+    // Assert
+    assert.ok(target.naming?.includes("{gh-issues.number}"));
+    assert.ok(target.naming?.includes("{gh-issues.title}"));
+  });
+
+  test("openIssuesTarget: does not include assignee filter", () => {
+    // Arrange & Act
+    const target = openIssuesTarget("myorg", "myrepo");
+
+    // Assert
+    assert.strictEqual(
+      ((target["gh-issues"] as any)?.filters).assignee,
+      undefined,
+    );
   });
 });
 

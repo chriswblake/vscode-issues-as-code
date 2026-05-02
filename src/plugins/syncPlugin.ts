@@ -218,6 +218,14 @@ export interface PluginBootstrap {
   detectDefaults(workspaceFolder: {
     uri: { fsPath: string };
   }): Promise<import("../configManager").SyncTarget[] | null>;
+
+  /**
+   * Persist default sync targets to workspace settings if none are configured.
+   * Returns the persisted targets (with relative paths), or null if nothing was persisted.
+   */
+  persistDefaults(workspaceFolder: {
+    uri: { fsPath: string };
+  }): Promise<import("../configManager").SyncTarget[] | null>;
 }
 
 // ---------------------------------------------------------------------------
