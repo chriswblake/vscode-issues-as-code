@@ -538,10 +538,33 @@ export class SyncManager {
 
     if (expectedPath !== filePath) {
       await this.unlinkSuppressed(filePath);
-      return expectedPath;
     }
 
-    return undefined;
+    // Post-push validation: remove the file if it no longer matches the target query
+    // (e.g. user closed an issue but the target filters for state: open)
+    if (!(await this.entryMatchesTargetConfig(expectedPath, pluginConfig))) {
+      await this.closeEditorTab(expectedPath);
+      await this.unlinkSuppressed(expectedPath);
+      return undefined;
+    }
+
+    return expectedPath !== filePath ? expectedPath : undefined;
+  }
+
+  /** Closes the editor tab for a file path without opening a replacement. */
+  private async closeEditorTab(filePath: string): Promise<void> {
+    const vs = vscode();
+    const uri = vs.Uri.file(filePath);
+    const tab = vs.window.tabGroups.all
+      .flatMap((group) => group.tabs)
+      .find(
+        (t) =>
+          t.input instanceof vs.TabInputText &&
+          t.input.uri.fsPath === uri.fsPath,
+      );
+    if (tab) {
+      await vs.window.tabGroups.close(tab);
+    }
   }
 
   /** Debounced push — called from file watcher on changes to existing files. */

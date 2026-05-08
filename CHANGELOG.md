@@ -10,6 +10,7 @@
 ### Added
 
 - **`issuesAsCode.autoPush` setting**: Controls when local changes are automatically pushed to the remote. Options: `"afterDelay"` (default, same as previous behavior), `"onFocusChange"` (push when switching away from the file), `"onWindowChange"` (push when VS Code window loses focus), `"off"` (disable auto-push entirely). Mirrors the behavior of VS Code's built-in `files.autoSave` setting.
+- **Post-push filter validation**: After pushing changes, the file is re-checked against the target's filter criteria. If it no longer matches (e.g. the issue was closed but the target filters for `state: open`), the file and its state entry are automatically removed and the editor tab is closed.
 
 - **Sync details CodeLens on second line**: The "⟳ Sync Now" button and sync status info now appear on a separate line below the remote reference link, giving clearer visual separation between the URL and sync actions.
 - **Push blocked when remote has pending changes**: When the remote has been updated since the last sync, pushing local changes is blocked. An interactive warning prompts the user to pull remote changes first, preventing accidental overwrites.
