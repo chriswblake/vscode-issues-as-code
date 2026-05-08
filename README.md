@@ -90,10 +90,12 @@ Sync state (last-synced timestamps) is stored in a dedicated `sync-state.yml` fi
 
 ## Commands
 
-- `Issues as Code: Pull Now` — pulls all configured targets immediately.
-- `Issues as Code: Push Now` — pushes the currently open issue file.
-- `Issues as Code: Refresh All` — refreshes all configured targets.
-- `Issues as Code: Add Open Issues Default Config` — detects the current repository and appends a default open-issues target to `issuesAsCode.syncTargets` for the active workspace folder.
+- `Issues as Code: Refresh` — refreshes sync targets. If multiple targets exist, shows a picker to select which ones to refresh.
+- `Issues as Code: Publish to Remote` — publishes the currently open issue file to the remote.
+- `Issues as Code: Pull Remote Changes` — pulls remote changes for the current file.
+- `Issues as Code: Add Sync Target - Open issues on this repository` — detects the current repository and appends a default open-issues target.
+- `Issues as Code: Add Sync Target - My open issues on GitHub` — adds a sync target for your assigned issues across GitHub.
+- `Issues as Code: Add Sync Target - My open issues on this repository` — adds a sync target for your assigned issues on this repository.
 
 ## Documentation
 

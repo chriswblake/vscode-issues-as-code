@@ -17,44 +17,12 @@
   "contributes": {
     "commands": [
       {
-        "command": "issuesAsCode.pullNow",
-        "title": "Issues as Code: Pull Now"
-      },
-      {
-        "command": "issuesAsCode.pushNow",
-        "title": "Issues as Code: Push Now"
-      },
-      {
         "command": "issuesAsCode.refresh",
-        "title": "Issues as Code: Refresh All"
+        "title": "Issues as Code: Refresh"
       },
       {
-        "command": "issuesAsCode.addSyncTargetRepoIssues",
-        "title": "Issues as Code: Add Sync Target - Open issues on this repository"
-      },
-      {
-        "command": "issuesAsCode.addSyncTargetMyIssuesOnGitHub",
-        "title": "Issues as Code: Add Sync Target - My open issues on GitHub"
-      },
-      {
-        "command": "issuesAsCode.addSyncTargetAssignedRepoIssues",
-        "title": "Issues as Code: Add Sync Target - My open issues on this repository"
-      },
-      {
-        "command": "issuesAsCode.publishFile",
-        "title": "Issues as Code: Publish to Remote"
-      },
-      {
-        "command": "issuesAsCode.pullFile",
-        "title": "Issues as Code: Pull Remote Changes"
-      },
-      {
-        "command": "issuesAsCode.fetchNow",
-        "title": "Issues as Code: Fetch Now"
-      },
-      {
-        "command": "issuesAsCode.showSyncSummary",
-        "title": "Issues as Code: Show Sync Summary"
+        "command": "issuesAsCode.addSyncTarget",
+        "title": "Issues as Code: Add Sync Target"
       }
     ],
     "configuration": {

@@ -1,10 +1,14 @@
-import type * as vscodeType from 'vscode';
-import { type RateLimitInfo, type RateLimitBucket, formatResetTime } from './rateLimitMonitor';
+import type * as vscodeType from "vscode";
+import {
+  type RateLimitInfo,
+  type RateLimitBucket,
+  formatResetTime,
+} from "./rateLimitMonitor";
 
 // Lazy vscode import so unit tests can run without a VS Code instance
 function vscode(): typeof vscodeType {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('vscode');
+  return require("vscode");
 }
 
 // ---------------------------------------------------------------------------
@@ -49,10 +53,13 @@ export class StatusBarManager {
     commandId: string,
   ): void {
     const vs = vscode();
-    this.statusBarItem = vs.window.createStatusBarItem(vs.StatusBarAlignment.Right, 50);
+    this.statusBarItem = vs.window.createStatusBarItem(
+      vs.StatusBarAlignment.Right,
+      50,
+    );
     this.statusBarItem.command = commandId;
-    this.statusBarItem.text = '$(checklist)';
-    this.statusBarItem.tooltip = 'Issues as Code — no sync data yet';
+    this.statusBarItem.text = "$(checklist)";
+    this.statusBarItem.tooltip = "Issues as Code — no sync data yet";
     this.statusBarItem.show();
     context.subscriptions.push(this.statusBarItem);
   }
@@ -74,15 +81,6 @@ export class StatusBarManager {
     }
   }
 
-  /**
-   * Refreshes the tooltip panel content.
-   * Called when the user clicks the status bar icon.
-   * The panel appears as a floating tooltip next to the status bar on hover.
-   */
-  showPanel(): void {
-    this.refreshStatusBar();
-  }
-
   /** Clean up the status bar item. */
   dispose(): void {
     this.statusBarItem?.dispose();
@@ -101,13 +99,15 @@ export class StatusBarManager {
     const summary = this.lastSummary;
 
     if (summary?.isPaused) {
-      this.statusBarItem.text = '$(warning)';
+      this.statusBarItem.text = "$(warning)";
       this.statusBarItem.tooltip = this.buildRichTooltip(summary);
-      this.statusBarItem.backgroundColor = new vs.ThemeColor('statusBarItem.warningBackground');
+      this.statusBarItem.backgroundColor = new vs.ThemeColor(
+        "statusBarItem.warningBackground",
+      );
       return;
     }
 
-    this.statusBarItem.text = '$(checklist)';
+    this.statusBarItem.text = "$(checklist)";
     this.statusBarItem.backgroundColor = undefined;
 
     if (summary) {
@@ -117,43 +117,56 @@ export class StatusBarManager {
 
   private buildRichTooltip(summary: SyncSummary): vscodeType.MarkdownString {
     const vs = vscode();
-    const md = new vs.MarkdownString('', true);
+    const md = new vs.MarkdownString("", true);
     md.isTrusted = true;
     md.supportHtml = true;
 
     // Title
-    md.appendMarkdown('**Issues as Code**\n\n---\n\n');
+    md.appendMarkdown("**Issues as Code**\n\n---\n\n");
 
     // Sync targets — compact table-like layout
     if (summary.targets.length === 0) {
-      md.appendMarkdown('*No sync targets configured.*\n\n');
+      md.appendMarkdown("*No sync targets configured.*\n\n");
     } else {
       for (const target of summary.targets) {
-        const lastFetchStr = target.lastFetchTime ? formatTimestamp(target.lastFetchTime) : 'never';
-        const nextFetchStr = target.nextFetchTime ? formatResetTime(target.nextFetchTime) : '—';
+        const lastFetchStr = target.lastFetchTime
+          ? formatTimestamp(target.lastFetchTime)
+          : "never";
+        const nextFetchStr = target.nextFetchTime
+          ? formatResetTime(target.nextFetchTime)
+          : "—";
 
         // Each target is one dense line: icon name · count · timing
-        md.appendMarkdown(`$(folder) **${target.name}** — ${target.trackedIssueCount} issues · fetched ${lastFetchStr} · next ${nextFetchStr}\n\n`);
+        md.appendMarkdown(
+          `$(folder) **${target.name}** — ${target.trackedIssueCount} issues · fetched ${lastFetchStr} · next ${nextFetchStr}\n\n`,
+        );
       }
     }
 
     // API quota — single compact line per bucket
     if (summary.rateLimits.size > 0) {
-      md.appendMarkdown('---\n\n');
+      md.appendMarkdown("---\n\n");
       for (const [bucket, info] of summary.rateLimits) {
-        const remainPct = info.limit > 0 ? (((info.limit - info.used) / info.limit) * 100).toFixed(0) : '—';
+        const remainPct =
+          info.limit > 0
+            ? (((info.limit - info.used) / info.limit) * 100).toFixed(0)
+            : "—";
         const resetDate = new Date(info.resetEpoch * 1000);
         const resetStr = formatResetTime(resetDate);
-        const label = bucket === 'core' ? 'REST API' : 'Search API';
+        const label = bucket === "core" ? "REST API" : "Search API";
 
-        md.appendMarkdown(`${label}: **${remainPct}%** remaining · resets ${resetStr}\n\n`);
+        md.appendMarkdown(
+          `${label}: **${remainPct}%** remaining · resets ${resetStr}\n\n`,
+        );
       }
     }
 
     // Pause warning
     if (summary.isPaused) {
-      md.appendMarkdown('---\n\n');
-      md.appendMarkdown(`$(warning) **Syncing paused** — ${summary.pauseReason}\n`);
+      md.appendMarkdown("---\n\n");
+      md.appendMarkdown(
+        `$(warning) **Syncing paused** — ${summary.pauseReason}\n`,
+      );
     }
 
     return md;
@@ -169,12 +182,12 @@ export function formatTimestamp(date: Date): string {
   const diffMs = Date.now() - date.getTime();
 
   if (diffMs < 0) {
-    return 'just now';
+    return "just now";
   }
 
   const seconds = Math.floor(diffMs / 1000);
   if (seconds < 60) {
-    return 'just now';
+    return "just now";
   }
 
   const minutes = Math.floor(seconds / 60);

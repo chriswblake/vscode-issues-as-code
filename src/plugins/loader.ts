@@ -3,13 +3,24 @@
  * Extension.ts calls these generic functions without knowing which plugins exist.
  */
 import type { SyncTarget } from "../configManager";
-import type { PluginBootstrap } from "./syncPlugin";
+import type { PluginBootstrap, IncludedSyncTargetConfig } from "./syncPlugin";
 
 // Import all available plugin bootstraps here.
 // Adding a new plugin = adding one import + one array entry.
 import { bootstrap as ghIssuesBootstrap } from "./ghIssuesBootstrap";
 
 const allBootstraps: PluginBootstrap[] = [ghIssuesBootstrap];
+
+// ---------------------------------------------------------------------------
+// Included config item with plugin metadata for QuickPick display
+// ---------------------------------------------------------------------------
+
+export interface IncludedConfigItem {
+  /** Plugin display name (e.g. "GitHub Issues"). */
+  pluginDisplayName: string;
+  /** The included config from the plugin. */
+  config: IncludedSyncTargetConfig;
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -40,6 +51,23 @@ export function registerPluginCommands(
   for (const b of allBootstraps) {
     b.registerCommands(context, reinitialize);
   }
+}
+
+/**
+ * Collect included sync target configs from all plugins for a workspace folder.
+ * Each item includes the plugin display name for QuickPick prefixing.
+ */
+export async function getAllIncludedConfigs(workspaceFolder: {
+  uri: { fsPath: string };
+}): Promise<IncludedConfigItem[]> {
+  const items: IncludedConfigItem[] = [];
+  for (const b of allBootstraps) {
+    const configs = await b.getIncludedConfigs(workspaceFolder);
+    for (const config of configs) {
+      items.push({ pluginDisplayName: b.displayName, config });
+    }
+  }
+  return items;
 }
 
 /**

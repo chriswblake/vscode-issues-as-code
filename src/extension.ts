@@ -10,6 +10,7 @@ import {
   SyncManager,
   reconcileTargetChanges,
   switchEditorToRenamedFile,
+  type RefreshResult,
 } from "./syncManager";
 import { SyncStateManager } from "./syncStateManager";
 import { IssueDecorationProvider } from "./issueDecorationProvider";
@@ -26,6 +27,8 @@ import {
   registerPluginCommands,
   detectDefaultTargets,
   persistDefaultTargets,
+  getAllIncludedConfigs,
+  type IncludedConfigItem,
 } from "./plugins/loader";
 import {
   getPrimaryPlugin,
@@ -91,7 +94,7 @@ function registerProviders(context: vscode.ExtensionContext): void {
 
   // Status bar manager (icon + tooltip + panel)
   statusBarManager = new StatusBarManager();
-  statusBarManager.createStatusBar(context, "issuesAsCode.showSyncSummary");
+  statusBarManager.createStatusBar(context, "issuesAsCode.refresh");
   context.subscriptions.push({ dispose: () => statusBarManager?.dispose() });
 
   // Update status bar when rate limit state changes
@@ -219,71 +222,152 @@ function registerProviders(context: vscode.ExtensionContext): void {
 // ---------------------------------------------------------------------------
 
 function registerCommands(context: vscode.ExtensionContext): void {
-  async function ensureManagersAndPull(): Promise<void> {
-    if (syncManagers.length === 0) {
-      await reinitializeAllFolders(context);
-    }
-    if (syncManagers.length === 0) {
-      void vscode.window.showWarningMessage(
-        "No sync targets are active for this workspace. Configure issuesAsCode.syncTargets or open a folder with a GitHub remote.",
-      );
-      return;
-    }
-    syncManagers.forEach((m) => void m.pullAll());
-  }
-
   context.subscriptions.push(
-    vscode.commands.registerCommand(
-      "issuesAsCode.fetchNow",
-      ensureManagersAndPull,
-    ),
-    vscode.commands.registerCommand(
-      "issuesAsCode.pullNow",
-      ensureManagersAndPull,
-    ),
-    vscode.commands.registerCommand("issuesAsCode.pushNow", async () => {
-      const editor = vscode.window.activeTextEditor;
-      if (editor) {
-        const filePath = editor.document.uri.fsPath;
-        const manager = syncManagers.find((m) => m.ownsFile(filePath));
-        if (manager) {
-          const newPath = await manager.pushFile(filePath, {
-            interactive: true,
-          });
-          if (newPath) {
-            await switchEditorToRenamedFile(filePath, newPath);
-          }
-        }
+    vscode.commands.registerCommand("issuesAsCode.refresh", async () => {
+      // Ensure managers exist; reinitialize counts as the first pull
+      let justInitialized = false;
+      if (syncManagers.length === 0) {
+        await reinitializeAllFolders(context);
+        justInitialized = true;
       }
+      if (syncManagers.length === 0) {
+        void vscode.window.showWarningMessage(
+          "No sync targets are active for this workspace. Configure issuesAsCode.syncTargets or open a folder with a GitHub remote.",
+        );
+        return;
+      }
+
+      // Reinitialize already pulled all targets — skip the redundant pull
+      if (justInitialized) {
+        void vscode.window.showInformationMessage(
+          "Issues as Code: Targets initialized and refreshed.",
+        );
+        return;
+      }
+
+      // Select which targets to refresh
+      let managersToRefresh: SyncManager[];
+      if (syncManagers.length === 1) {
+        managersToRefresh = syncManagers;
+      } else {
+        const items = syncManagers.map((m) => ({
+          label: m.displayName,
+          picked: true,
+          manager: m,
+        }));
+        const selected = await vscode.window.showQuickPick(items, {
+          title: "Issues as Code: Refresh",
+          placeHolder: "Select sync targets to refresh",
+          canPickMany: true,
+        });
+        if (!selected || selected.length === 0) {
+          return;
+        }
+        managersToRefresh = selected.map((s) => s.manager);
+      }
+
+      // Run refresh with progress indicator
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Issues as Code: Refreshing…",
+        },
+        async () => {
+          const results = await Promise.allSettled(
+            managersToRefresh.map((m) => m.refresh()),
+          );
+
+          // Summarize results
+          const settled = results
+            .filter(
+              (r): r is PromiseFulfilledResult<RefreshResult> =>
+                r.status === "fulfilled",
+            )
+            .map((r) => r.value);
+
+          const succeeded = settled.filter((r) => r.status === "success");
+          const skipped = settled.filter((r) => r.status === "skipped");
+          const failed = settled.filter((r) => r.status === "error");
+
+          if (failed.length > 0) {
+            const names = failed.map((r) => r.name).join(", ");
+            void vscode.window.showErrorMessage(`Refresh failed for: ${names}`);
+          } else if (skipped.length > 0 && succeeded.length === 0) {
+            void vscode.window.showWarningMessage(
+              "Refresh skipped — API rate limit is paused.",
+            );
+          }
+        },
+      );
     }),
-    vscode.commands.registerCommand(
-      "issuesAsCode.refresh",
-      ensureManagersAndPull,
-    ),
+    vscode.commands.registerCommand("issuesAsCode.addSyncTarget", async () => {
+      const folder = getActiveWorkspaceFolder();
+      if (!folder) {
+        void vscode.window.showErrorMessage("No workspace folder is open.");
+        return;
+      }
+
+      // Collect available preset configs from all plugins
+      const items = await getAllIncludedConfigs(folder);
+      if (items.length === 0) {
+        void vscode.window.showWarningMessage(
+          "No sync target presets are available. Check your GitHub authentication and that this workspace has a GitHub remote.",
+        );
+        return;
+      }
+
+      // Build QuickPick items, prefixed by plugin name
+      const pickItems = items.map((item) => ({
+        label: `${item.pluginDisplayName}: ${item.config.label}`,
+        description: item.config.description,
+        item,
+      }));
+
+      const selected = await vscode.window.showQuickPick(pickItems, {
+        title: "Issues as Code: Add Sync Target",
+        placeHolder: "Select a sync target preset to add",
+      });
+      if (!selected) {
+        return;
+      }
+
+      // Check for duplicates
+      const cfg = vscode.workspace.getConfiguration("issuesAsCode", folder.uri);
+      const currentTargets = cfg.get<SyncTarget[]>("syncTargets") ?? [];
+      if (selected.item.config.isDuplicate(currentTargets)) {
+        void vscode.window.showInformationMessage(
+          `A matching "${selected.item.config.label}" sync target already exists.`,
+        );
+        return;
+      }
+
+      // Add the target to workspace settings
+      await cfg.update(
+        "syncTargets",
+        [...currentTargets, selected.item.config.target],
+        vscode.ConfigurationTarget.WorkspaceFolder,
+      );
+      await reinitializeAllFolders(context);
+      void vscode.window.showInformationMessage(
+        `Added sync target: ${selected.item.config.label}.`,
+      );
+    }),
+
+    // Internal commands (used by CodeLens, not exposed in the command palette)
     vscode.commands.registerCommand(
       "issuesAsCode.publishFile",
       async (uri?: vscode.Uri) => {
-        const targetUri = uri ?? vscode.window.activeTextEditor?.document.uri;
-        if (!targetUri) {
-          void vscode.window.showWarningMessage("No file is open to publish.");
-          return;
-        }
-
-        const filePath = targetUri.fsPath;
-        const manager = syncManagers.find((m) => m.ownsFile(filePath));
-        if (!manager) {
-          void vscode.window.showWarningMessage(
-            "This file is not inside a managed sync target folder.",
-          );
+        const resolved = resolveFileManager(uri, "publish");
+        if (!resolved) {
           return;
         }
 
         try {
-          const newPath = await manager.pushFile(filePath, {
+          const newPath = await resolved.manager.pushFile(resolved.filePath, {
             interactive: true,
           });
           if (newPath) {
-            await switchEditorToRenamedFile(filePath, newPath);
+            await switchEditorToRenamedFile(resolved.filePath, newPath);
           }
         } catch (err) {
           void vscode.window.showErrorMessage(
@@ -295,23 +379,13 @@ function registerCommands(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       "issuesAsCode.pullFile",
       async (uri?: vscode.Uri) => {
-        const targetUri = uri ?? vscode.window.activeTextEditor?.document.uri;
-        if (!targetUri) {
-          void vscode.window.showWarningMessage("No file is open to pull.");
-          return;
-        }
-
-        const filePath = targetUri.fsPath;
-        const manager = syncManagers.find((m) => m.ownsFile(filePath));
-        if (!manager) {
-          void vscode.window.showWarningMessage(
-            "This file is not inside a managed sync target folder.",
-          );
+        const resolved = resolveFileManager(uri, "pull");
+        if (!resolved) {
           return;
         }
 
         try {
-          await manager.pullFile(filePath);
+          await resolved.manager.pullFile(resolved.filePath);
         } catch (err) {
           void vscode.window.showErrorMessage(
             `Failed to pull file: ${err instanceof Error ? err.message : String(err)}`,
@@ -344,13 +418,52 @@ function registerCommands(context: vscode.ExtensionContext): void {
         statusBarManager?.setVisible(visible);
       }
     }),
-    vscode.commands.registerCommand("issuesAsCode.showSyncSummary", () => {
-      statusBarManager?.showPanel();
-    }),
   );
 
   // Plugin-specific commands
   registerPluginCommands(context, () => reinitializeAllFolders(context));
+}
+
+// ---------------------------------------------------------------------------
+// Workspace folder helper
+// ---------------------------------------------------------------------------
+
+function getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
+  const editor = vscode.window.activeTextEditor;
+  if (editor) {
+    const folder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+    if (folder) {
+      return folder;
+    }
+  }
+  const folders = vscode.workspace.workspaceFolders ?? [];
+  return folders[0];
+}
+
+/**
+ * Resolves the target file and its owning SyncManager from a command invocation.
+ * Shows a warning and returns null when no file is open or the file is unmanaged.
+ */
+function resolveFileManager(
+  uri: vscode.Uri | undefined, //
+  action: string,
+): { filePath: string; manager: SyncManager } | null {
+  const targetUri = uri ?? vscode.window.activeTextEditor?.document.uri;
+  if (!targetUri) {
+    void vscode.window.showWarningMessage(`No file is open to ${action}.`);
+    return null;
+  }
+
+  const filePath = targetUri.fsPath;
+  const manager = syncManagers.find((m) => m.ownsFile(filePath));
+  if (!manager) {
+    void vscode.window.showWarningMessage(
+      "This file is not inside a managed sync target folder.",
+    );
+    return null;
+  }
+
+  return { filePath, manager };
 }
 
 // ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ export {
   defaultSyncTargets,
   createGhIssuesPlugin,
   getAuthenticatedUsername,
-  registerGhIssuesCommands,
+  getGhIssuesIncludedConfigs,
   hasDuplicateGhIssuesTarget,
   parseGitHubUrl,
 } from "./ghIssuesBootstrap";
@@ -32,4 +32,5 @@ export type {
   PullItem,
   PushResult,
   PluginContext,
+  IncludedSyncTargetConfig,
 } from "./syncPlugin";

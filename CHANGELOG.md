@@ -2,17 +2,36 @@
 
 ## [pending]
 
+### Added
+
+- **"Add Sync Target" command**: A single command palette entry that dynamically loads available sync target presets from all installed plugins. Each preset is prefixed with the plugin name (e.g. "GitHub Issues: Open issues on this repository"). Replaces the three individual "Add Sync Target - ..." commands.
+- **Plugin-provided sync target presets**: Plugins now expose their own included configs via `getIncludedConfigs()` on the `PluginBootstrap` interface. Each plugin can mark one config as the default.
+
+### Removed
+
+- **"Publish to Remote" palette command**: Manual publish trigger removed from the command palette. CodeLens inline actions ("Sync Now", "Publish") remain available in the editor.
+- **"Pull Remote Changes" palette command**: Manual pull trigger removed from the command palette. CodeLens "Pull Changes" action remains available in the editor.
+- **"Add Sync Target - Open issues on this repository" command**: Consolidated into the unified "Add Sync Target" command.
+- **"Add Sync Target - My open issues on GitHub" command**: Consolidated into the unified "Add Sync Target" command.
+- **"Add Sync Target - My open issues on this repository" command**: Consolidated into the unified "Add Sync Target" command.
+
 ### Changed
 
-- **Status bar icon simplified**: The status bar now shows just a cloud icon (`$(cloud)`) instead of displaying raw API numbers. Hover for a rich tooltip with sync summary and API quota details.
-- **Renamed command to "Show Sync Summary"**: The `issuesAsCode.showRateLimits` command has been renamed to `issuesAsCode.showSyncSummary`. Clicking the status bar icon opens a QuickPick panel with sync targets, issue counts, fetch times, and API quota.
+- **Status bar icon**: The status bar now shows a checklist icon (`$(checklist)`). Hover for a rich tooltip with sync summary and API quota details. Click to refresh targets.
 - **Separated rate limit monitoring from UI**: `RateLimitMonitor` now focuses purely on quota tracking and pause/resume logic. Status bar display is handled by the new `StatusBarManager`.
+- **Renamed "Refresh All" to "Refresh"**: The command now shows a multi-select picker when multiple sync targets exist, allowing you to choose which targets to refresh. Progress feedback is shown during refresh.
+
+### Removed
+
+- **"Pull Now" command**: Replaced by the Refresh command which provides target selection and progress feedback.
+- **"Push Now" command**: Use the "Publish to Remote" command or auto-push instead.
+- **"Fetch Now" command**: Replaced by the Refresh command.
+- **"Show Sync Summary" command**: The sync summary is now shown as a tooltip when hovering over the status bar icon.
 
 ### Added
 
 - **`issuesAsCode.showStatusBarIcon` setting**: Boolean (default: `true`). Controls whether the Issues as Code status bar icon is visible. Window-scoped.
-- **Sync summary tooltip**: Hovering over the status bar icon shows total sync targets, tracked issue counts, last/next fetch times per target, and API quota with progress bars.
-- **Sync summary panel**: Clicking the status bar icon opens a QuickPick panel with detailed sync information.
+- **Sync summary tooltip**: Hovering over the status bar icon shows total sync targets, tracked issue counts, last/next fetch times per target, and API quota percentages.
 - **Fetch time tracking**: Each sync target now tracks when it was last fetched and when the next fetch is scheduled.
 
 ### Changed
@@ -27,7 +46,6 @@
 - **API rate limit monitoring**: A status bar item shows the current GitHub API quota (e.g. "API: 4532/5000"). Clicking it shows detailed quota info per bucket (core, search) including reset times.
 - **Automatic sync pause on low quota**: When remaining API quota drops below the configurable threshold (default 5%), automatic syncing pauses until the quota resets. A warning alert is shown. Manual actions (Sync Now, Publish) still work with a confirmation prompt.
 - **`issuesAsCode.rateLimitThreshold` setting**: Percentage of API quota remaining that triggers a sync pause (default: 5). Window-scoped.
-- **Command: "Issues as Code: Show Sync Summary"** (`issuesAsCode.showSyncSummary`) — Shows sync summary and detailed API quota information.
 
 - **Sync details CodeLens on second line**: The "⟳ Sync Now" button and sync status info now appear on a separate line below the remote reference link, giving clearer visual separation between the URL and sync actions.
 - **Push blocked when remote has pending changes**: When the remote has been updated since the last sync, pushing local changes is blocked. An interactive warning prompts the user to pull remote changes first, preventing accidental overwrites.

@@ -185,6 +185,27 @@ export interface MetadataPlugin {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// Included Sync Target Config — preset configs offered by plugins
+// ---------------------------------------------------------------------------
+
+/**
+ * A preset sync target config provided by a plugin.
+ * Shown in the "Add Sync Target" command palette QuickPick.
+ */
+export interface IncludedSyncTargetConfig {
+  /** Display label (e.g. "Open issues on this repository"). */
+  label: string;
+  /** Optional description shown alongside the label (e.g. "owner/repo"). */
+  description?: string;
+  /** The sync target config to add. */
+  target: import("../configManager").SyncTarget;
+  /** Whether this is the plugin's default config (used for auto-setup). */
+  isDefault?: boolean;
+  /** Returns true if a matching target already exists in the current config. */
+  isDuplicate(currentTargets: import("../configManager").SyncTarget[]): boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Plugin Bootstrap — generic interface for plugin initialization
 // ---------------------------------------------------------------------------
 
@@ -195,6 +216,9 @@ export interface MetadataPlugin {
 export interface PluginBootstrap {
   /** Plugin identifier (must match PrimarySyncPlugin.id). */
   readonly pluginId: string;
+
+  /** Human-readable display name (e.g. "GitHub Issues"). */
+  readonly displayName: string;
 
   /**
    * Initialize the plugin (e.g. authenticate) and register it in the registry.
@@ -210,6 +234,14 @@ export interface PluginBootstrap {
     context: { subscriptions: { dispose(): void }[] },
     reinitialize: () => Promise<void>,
   ): void;
+
+  /**
+   * Returns preset sync target configs available for a workspace folder.
+   * Configs that require repo detection or auth may be omitted if unavailable.
+   */
+  getIncludedConfigs(workspaceFolder: {
+    uri: { fsPath: string };
+  }): Promise<IncludedSyncTargetConfig[]>;
 
   /**
    * Attempt to detect default sync targets for a workspace folder.

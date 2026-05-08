@@ -12,6 +12,12 @@ import { SyncStateManager, type RemoteIssueInfo } from "./syncStateManager";
 import { type PrimarySyncPlugin, type PullItem } from "./plugins/syncPlugin";
 import { type RateLimitMonitor } from "./rateLimitMonitor";
 
+/** Result of a single target refresh operation. */
+export type RefreshResult =
+  | { status: "success"; name: string }
+  | { status: "skipped"; name: string }
+  | { status: "error"; name: string; error: string };
+
 // Lazy vscode import so unit tests can stub it out
 function vscode(): typeof vscodeType {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -167,24 +173,38 @@ export class SyncManager {
     }
   }
 
-  /** Pull all remote items for this target via the plugin. */
+  /** Pull all remote items for this target via the plugin (fire-and-forget). */
   async pullAll(): Promise<void> {
+    await this.refresh();
+  }
+
+  /**
+   * Pull all remote items and return a structured result.
+   * Safe for both interactive (command) and background (timer) use.
+   */
+  async refresh(): Promise<RefreshResult> {
     if (this.rateLimitMonitor?.isPaused) {
       console.log(
-        `[issuesAsCode] pullAll skipped — rate limit paused: ${this.rateLimitMonitor.pauseReason}`,
+        `[issuesAsCode] refresh skipped — rate limit paused: ${this.rateLimitMonitor.pauseReason}`,
       );
-      return;
+      return { status: "skipped", name: this.displayName };
     }
 
     try {
       await this.pullTarget();
       this._lastFetchTime = new Date();
       this.notifySyncChange();
+      return { status: "success", name: this.displayName };
     } catch (err) {
       console.error(
         `[issuesAsCode] pullTarget "${this.target.filesDir}" failed:`, //
         err,
       );
+      return {
+        status: "error",
+        name: this.displayName,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   }
 
