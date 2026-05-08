@@ -54,7 +54,7 @@ export class SyncManager {
 
   constructor(
     readonly plugin: PrimarySyncPlugin,
-    private config: IssueConfig,
+    readonly config: IssueConfig,
     readonly target: SyncTarget,
     private workspaceFolder: vscodeType.WorkspaceFolder,
     private context: vscodeType.ExtensionContext,
@@ -566,9 +566,55 @@ export class SyncManager {
             `Issue sync push failed for ${path.basename(filePath)}: ${message}`,
           );
         });
-    }, this.config.pushOnSaveDelay * 1000);
+    }, this.config.autoPushDelay);
 
     this.debounceTimers.set(filePath, timer);
+  }
+
+  /** Cancel any scheduled debounce push for a file (e.g. when an immediate push supersedes it). */
+  cancelScheduledPush(filePath: string): void {
+    const existing = this.debounceTimers.get(filePath);
+    if (existing) {
+      clearTimeout(existing);
+      this.debounceTimers.delete(filePath);
+    }
+  }
+
+  /**
+   * Push immediately if the file is already published (has a remote ID).
+   * Cancels any pending debounced push for the same file.
+   * Returns true if a push was attempted.
+   */
+  async pushNowIfPublished(filePath: string): Promise<boolean> {
+    if (this.target.readOnly) {
+      return false;
+    }
+
+    try {
+      const { frontmatter } = await readIssueFile(filePath);
+      const stateEntry = this.stateManager.getEntry(filePath);
+      if (this.plugin.getRemoteId(frontmatter, stateEntry) === undefined) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+
+    this.cancelScheduledPush(filePath);
+
+    try {
+      const newPath = await this.pushFile(filePath);
+      if (newPath) {
+        void switchEditorToRenamedFile(filePath, newPath);
+      }
+    } catch (err) {
+      console.error(`[issuesAsCode] push failed for "${filePath}":`, err);
+      const message = err instanceof Error ? err.message : "Unknown error";
+      void vscode().window.showErrorMessage(
+        `Issue sync push failed for ${path.basename(filePath)}: ${message}`,
+      );
+    }
+    return true;
   }
 
   /** Increment or decrement ref-count for a suppressed URI. */
@@ -648,7 +694,10 @@ export class SyncManager {
       return;
     }
 
-    this.debouncedPush(filePath);
+    // Only schedule a debounced push in "afterDelay" mode
+    if (this.config.autoPush === "afterDelay") {
+      this.debouncedPush(filePath);
+    }
   }
 
   private async shouldIgnoreFileEvent(filePath: string): Promise<boolean> {

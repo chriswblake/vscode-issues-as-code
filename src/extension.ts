@@ -1,6 +1,11 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import { getConfig, ensureGitignore, type SyncTarget } from "./configManager";
+import {
+  getConfig,
+  ensureGitignore,
+  type SyncTarget,
+  type AutoPushMode,
+} from "./configManager";
 import {
   SyncManager,
   reconcileTargetChanges,
@@ -35,6 +40,12 @@ let reinitializeChain: Promise<void> = Promise.resolve();
 // Delays reinitialize after a config change so mid-edit partial values are ignored.
 const CONFIG_CHANGE_DEBOUNCE_MS = 3000;
 let configChangeDebounceTimer: NodeJS.Timeout | null = null;
+
+/** Resolves the autoPush mode for a file by finding its owning manager. */
+function getAutoPushMode(filePath: string): AutoPushMode | undefined {
+  const manager = syncManagers.find((m) => m.ownsFile(filePath));
+  return manager?.config.autoPush;
+}
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -94,6 +105,72 @@ function registerProviders(context: vscode.ExtensionContext): void {
     }),
     vscode.workspace.onDidSaveTextDocument((document) => {
       decorationProvider?.clearDirty(document.uri.fsPath);
+    }),
+  );
+
+  // ---------------------------------------------------------------------------
+  // Push triggers: manual save, focus change, window change
+  // ---------------------------------------------------------------------------
+
+  // Track save reasons so onDidSave can distinguish manual from auto saves
+  const lastSaveReason = new Map<string, vscode.TextDocumentSaveReason>();
+
+  context.subscriptions.push(
+    vscode.workspace.onWillSaveTextDocument((event) => {
+      lastSaveReason.set(event.document.uri.fsPath, event.reason);
+    }),
+  );
+
+  // Manual save → push immediately (regardless of autoPush setting)
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument((document) => {
+      const filePath = document.uri.fsPath;
+      const reason = lastSaveReason.get(filePath);
+      lastSaveReason.delete(filePath);
+
+      if (reason === vscode.TextDocumentSaveReason.Manual) {
+        const manager = syncManagers.find((m) => m.ownsFile(filePath));
+        if (manager) {
+          void manager.pushNowIfPublished(filePath);
+        }
+      }
+    }),
+  );
+
+  // Focus change → push previously active file (when autoPush is "onFocusChange")
+  let previousActiveFilePath: string | undefined;
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveTextEditor((editor) => {
+      const fileToFlush = previousActiveFilePath;
+      previousActiveFilePath = editor?.document.uri.fsPath;
+
+      if (!fileToFlush) {
+        return;
+      }
+      const manager = syncManagers.find((m) => m.ownsFile(fileToFlush));
+      if (manager && getAutoPushMode(fileToFlush) === "onFocusChange") {
+        void manager.pushNowIfPublished(fileToFlush);
+      }
+    }),
+  );
+
+  // Window change → push all modified managed files (when autoPush is "onWindowChange")
+  context.subscriptions.push(
+    vscode.window.onDidChangeWindowState((state) => {
+      if (state.focused) {
+        return;
+      }
+      for (const manager of syncManagers) {
+        if (manager.config.autoPush !== "onWindowChange") {
+          continue;
+        }
+        const entries = manager.stateManager.getFilesUnderLocation(
+          manager.target.filesDir,
+        );
+        for (const [filePath] of entries) {
+          void manager.pushNowIfPublished(filePath);
+        }
+      }
     }),
   );
 

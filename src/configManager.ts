@@ -27,9 +27,16 @@ export interface ShowSyncIconsConfig {
   synchronized: boolean;
 }
 
+export type AutoPushMode =
+  | "afterDelay"
+  | "onFocusChange"
+  | "onWindowChange"
+  | "off";
+
 export interface IssueConfig {
   fileNaming: string;
-  pushOnSaveDelay: number;
+  autoPush: AutoPushMode;
+  autoPushDelay: number;
   syncTargets: SyncTarget[];
   autoFetchInterval: number;
   autoPullOnFetch: boolean;
@@ -96,7 +103,8 @@ export function getConfig(
       return {
         fileNaming:
           cfg.get<string>("fileNaming") ?? "{issue-num}-{issue-title}",
-        pushOnSaveDelay: cfg.get<number>("pushOnSaveDelay") ?? 60,
+        autoPush: cfg.get<AutoPushMode>("autoPush") ?? "afterDelay",
+        autoPushDelay: cfg.get<number>("autoPushDelay") ?? 60000,
         syncTargets,
         autoFetchInterval:
           cfg.get<number>("autoFetchInterval") ??
@@ -121,7 +129,8 @@ export function getConfig(
   // Default config used in tests or when vscode is unavailable
   return {
     fileNaming: "{issue-num}-{issue-title}",
-    pushOnSaveDelay: 60,
+    autoPush: "afterDelay",
+    autoPushDelay: 60000,
     syncTargets: [],
     autoFetchInterval: 30,
     autoPullOnFetch: false,

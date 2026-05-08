@@ -4,6 +4,13 @@
 
 ### Changed
 
+- **Renamed `pushOnSaveDelay` to `autoPushDelay`**: The setting name now mirrors VS Code's `files.autoSaveDelay` convention. Only applies when `autoPush` is `"afterDelay"`.
+- **Manual save always pushes immediately**: When the user explicitly saves (Ctrl+S / File → Save), changes are pushed to the remote immediately without waiting for the delay timer. The existing conflict protection still applies — if the remote has been updated, the push is blocked and the user is prompted to pull first.
+
+### Added
+
+- **`issuesAsCode.autoPush` setting**: Controls when local changes are automatically pushed to the remote. Options: `"afterDelay"` (default, same as previous behavior), `"onFocusChange"` (push when switching away from the file), `"onWindowChange"` (push when VS Code window loses focus), `"off"` (disable auto-push entirely). Mirrors the behavior of VS Code's built-in `files.autoSave` setting.
+
 - **Sync details CodeLens on second line**: The "⟳ Sync Now" button and sync status info now appear on a separate line below the remote reference link, giving clearer visual separation between the URL and sync actions.
 - **Push blocked when remote has pending changes**: When the remote has been updated since the last sync, pushing local changes is blocked. An interactive warning prompts the user to pull remote changes first, preventing accidental overwrites.
 - **Pull hold-off for modified files**: During periodic pulls, if the local file has been modified and the remote also has changes, remote changes are no longer auto-applied. Instead, they are tracked as pending and surfaced via the "Pull Changes" button.

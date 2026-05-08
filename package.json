@@ -62,10 +62,22 @@
           "description": "Template for issue file names.",
           "scope": "resource"
         },
-        "issuesAsCode.pushOnSaveDelay": {
+        "issuesAsCode.autoPush": {
+          "type": "string",
+          "enum": [
+            "afterDelay",
+            "onFocusChange",
+            "onWindowChange",
+            "off"
+          ],
+          "default": "afterDelay",
+          "description": "Controls when local changes are automatically pushed to the remote. 'afterDelay' pushes after the configured delay. 'onFocusChange' pushes when the editor loses focus. 'onWindowChange' pushes when the VS Code window loses focus. 'off' disables auto-push entirely. Manual saves (Ctrl+S) always push immediately regardless of this setting.",
+          "scope": "resource"
+        },
+        "issuesAsCode.autoPushDelay": {
           "type": "number",
-          "default": 60,
-          "description": "Seconds to wait after last save before pushing to GitHub.",
+          "default": 60000,
+          "description": "Milliseconds to wait after last save before pushing to the remote. Only used when autoPush is set to 'afterDelay'.",
           "scope": "resource"
         },
         "issuesAsCode.syncTargets": {
