@@ -202,6 +202,11 @@ suite("configManager – getConfig defaults", () => {
     assert.strictEqual(config.showStatusBarIcon, true);
   });
 
+  test("keepGitIgnoreUpdated defaults to true", () => {
+    const config = getConfig("/workspace");
+    assert.strictEqual(config.keepGitIgnoreUpdated, true);
+  });
+
   test("syncStatePath defaults to sync-state.yml", () => {
     const config = getConfig("/workspace");
     assert.ok(config.syncStatePath.endsWith("sync-state.yml"));

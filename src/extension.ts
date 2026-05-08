@@ -606,10 +606,16 @@ async function activateFolder(
     }
   }
 
-  await ensureGitignore(folder.uri.fsPath, [
-    ...targets.map((t) => t.filesDir),
-    config.syncStatePath,
-  ]);
+  // Always gitignore the sync state file
+  await ensureGitignore(folder.uri.fsPath, [config.syncStatePath]);
+
+  // Optionally gitignore sync target folders
+  if (config.keepGitIgnoreUpdated) {
+    await ensureGitignore(
+      folder.uri.fsPath,
+      targets.map((t) => t.filesDir),
+    );
+  }
   await applyFilesExclude(folder, config);
 
   // Update rate limit threshold from this folder's config

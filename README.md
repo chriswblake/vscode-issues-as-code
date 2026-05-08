@@ -3,100 +3,97 @@
 Synchronize GitHub issues to a local `.issues/` folder — edit them as Markdown files and let the extension push changes back to GitHub automatically.
 
 > [!IMPORTANT]
-> This project was vibe coded. Please experiment on a few test repositories before working on a real project.
-
-## Features
-
-- **Auto-pull** issues on startup and at a configurable interval
-- **Debounced push** — edits are pushed to GitHub N seconds after your last save
-- **Full frontmatter** — title, state, labels, assignees, and projects all sync
-- **Smart conflict resolution** — simple remote-wins changes are auto-accepted; complex conflicts open a standard merge editor
-- **GitHub Projects v2** — read and write project field values
-- **Multi-org / multi-repo** — sync issues from any number of organizations and repositories simultaneously
-- **Multi-root workspace** support — one sync manager per folder
-- **Date tokens** in sync targets — `{today-10d}` resolves at runtime
-- **Create issues from local files** — save a new `.md` file in a configured location to open it on GitHub
-- **Auto-rename files** — issue files are renamed automatically when the title changes on GitHub
-- **Auto-reorganize files** — files are moved to the correct folder when `syncTargets` are updated
-- **Sync state icons** — A / M / ✓ badges in the Explorer show new, modified, and synchronized issues
-- **Sync notifications** — progress notifications during pull and push operations
-- **Dedicated sync state file** — sync metadata is stored in a separate `sync-state.yml` rather than in issue frontmatter
+> This project is in early development. Please experiment on a few test repositories before using it on a real project.
 
 ## Getting Started
 
+1. Open a workspace that contains a GitHub repository.
+2. Sign in to GitHub when prompted (uses VS Code's built-in authentication).
+3. Issues are downloaded automatically — no configuration needed.
+
+By default, the extension detects your workspace's GitHub remote and syncs open issues to `.issues/open/`. Each issue becomes a Markdown file with YAML frontmatter for metadata (title, state, labels, assignees).
+
+Edit an issue file and save — your changes are pushed back to GitHub after a short delay.
+
 > [!NOTE]
 > This is not yet available on the VS Code Marketplace.
-> It will be added after more rigorous testing.
 
-<!-- 1. **Install** the extension from the VS Code Marketplace. -->
-<!-- 2. **Open** a workspace that contains a GitHub repository. -->
-<!-- 3. **Sign in** to GitHub when prompted (uses VS Code's built-in GitHub authentication). -->
-<!-- 4. Issues matching your configured targets are downloaded automatically. -->
-   <!-- - If no `issuesAsCode.syncTargets` are configured, the extension auto-detects the workspace repository and uses sensible defaults (open issues + issues closed in the last 10 days). -->
+## Features
 
-## Configuration
+### Syncing
 
-All settings have `"scope": "resource"` so they can be set per workspace folder.
+- **Auto-fetch** on startup and at a configurable interval
+- **Auto-push** — edits are pushed to GitHub after a configurable delay, on focus change, or on window change
+- **Manual save** (Ctrl+S) pushes immediately, regardless of auto-push settings
+- **Smart conflict resolution** — non-conflicting remote changes are auto-accepted; conflicts open a merge editor
+- **Create issues** — save a new `.md` file in a sync target folder and click 'publish' to add to your repo
 
-| Setting                           | Type      | Default                                                  | Description                                                                           |
-| --------------------------------- | --------- | -------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `issuesAsCode.fileNaming`         | `string`  | `{issue-num}-{issue-title}`                              | Template for issue file names                                                         |
-| `issuesAsCode.autoPush`           | `string`  | `afterDelay`                                             | When to auto-push: `afterDelay`, `onFocusChange`, `onWindowChange`, or `off`          |
-| `issuesAsCode.autoPushDelay`      | `number`  | `60000`                                                  | Milliseconds to wait after last save before pushing (when `autoPush` is `afterDelay`) |
-| `issuesAsCode.syncTargets`        | `array`   | `[]`                                                     | Repositories and queries to sync (see below)                                          |
-| `issuesAsCode.autoFetchInterval`  | `number`  | `30`                                                     | Minutes between automatic fetches from the remote                                     |
-| `issuesAsCode.autoPullOnFetch`    | `boolean` | `false`                                                  | Auto-apply remote changes after fetch if no local conflicts                           |
-| `issuesAsCode.syncStatePath`      | `string`  | `.issues/sync-state.yml`                                 | Path to the local sync state file (machine-local, gitignored)                         |
-| `issuesAsCode.showSyncState`      | `boolean` | `false`                                                  | Show the sync state file in the VS Code Explorer                                      |
-| `issuesAsCode.showSyncIcons`      | `object`  | `{ newIssue: true, modified: true, synchronized: true }` | Controls which sync status badges appear on issue files                               |
-| `issuesAsCode.rateLimitThreshold` | `number`  | `5`                                                      | API quota % remaining that triggers a sync pause (window-scoped)                      |
-| `issuesAsCode.showStatusBarIcon`  | `boolean` | `true`                                                   | Show the Issues as Code status bar icon with sync summary on hover                    |
+### Editing
 
-### `issuesAsCode.syncTargets`
+- **Full frontmatter** — title, state, labels, assignees, and projects all sync as YAML
+- **Autocomplete** — IntelliSense for frontmatter fields (labels, assignees, state)
+- **Auto-rename** — files rename automatically when the issue title changes on GitHub
+- **Auto-reorganize** — files move to the correct folder when sync targets change
 
-Each entry defines one repository + query + local folder combination:
+### UI
 
-```json
-[
-  {
-    "repository_url": "https://github.com/my-org/my-repo",
-    "query": "is:issue state:open",
-    "location": ".issues/my-repo/open"
-  },
-  {
-    "repository_url": "https://github.com/my-org/my-repo",
-    "query": "is:issue closed:>{today-10d}",
-    "location": ".issues/my-repo/closed_10days"
-  },
-  {
-    "repository_url": "https://github.com/another-org/another-repo",
-    "query": "is:issue state:open",
-    "location": ".issues/another-repo/open"
-  }
-]
+- **Sync state icons** — `A` (new), `M` (modified), `✓` (synced) badges in the Explorer
+- **CodeLens actions** — inline "Sync Now", "Publish", and "Pull Changes" buttons on issue files
+- **Status bar** — sync summary and API quota on hover; click to refresh
+- **API rate limit protection** — automatic pause when quota is low
+
+### Extensibility
+
+- **Multi-repo** — sync issues from any number of repositories
+- **Multi-root workspace** — one sync manager per workspace folder
+- **Plugin architecture** — sync targets use plugins (e.g. `gh-issues`) for extensibility
+
+## Sync Targets
+
+Sync targets define what to sync and where to store it. Each target specifies a local folder and a plugin configuration.
+
+When no targets are configured (the default), the extension auto-detects your GitHub remote and adds a default target for open issues.
+
+To add more targets, use the **"Issues as Code: Add Sync Target"** command from the command palette to retrieve an included template.
+
+### Example Configuration
+
+```jsonc
+// .vscode/settings.json
+{
+  "issuesAsCode.syncTargets": [
+    {
+      "filesDir": ".issues/open",
+      "naming": "{gh-issues.number}-{gh-issues.title}",
+      "gh-issues": {
+        "filters": { "repository": "my-org/my-repo", "state": "open" },
+      },
+    },
+    {
+      "filesDir": ".issues/closed_10days",
+      "naming": "{gh-issues.number}-{gh-issues.title}",
+      "gh-issues": {
+        "filters": {
+          "repository": "my-org/my-repo",
+          "state": "closed",
+          "created_at": ">{today-10d}",
+        },
+      },
+    },
+  ],
+}
 ```
 
-Paths must be relative to the current workspace folder; absolute paths are not allowed. The `query` field supports the full GitHub issue search syntax and the `{today-Nd}` date token.
+All paths must be relative to the workspace folder. See [docs/configuration.md](docs/configuration.md) for full details on all settings.
 
-When `syncTargets` is empty (the default) the extension falls back to auto-detecting the repository from the workspace git remote and creates two targets: open issues and issues closed in the last 10 days, stored under `.issues/open` and `.issues/closed_10days`.
+## VS Code Commands
 
-## How Sync Works
-
-On activation the extension reads `issuesAsCode.syncTargets` and creates one sync manager per entry. Each manager authenticates via VS Code's GitHub auth provider, pulls issues matching its query into its configured `location` folder, and starts a `FileSystemWatcher` over that folder. When you save a file the extension starts a debounce timer and pushes your changes to the correct repository after the configured delay.
-
-If the remote version was updated since your last sync, simple non-conflicting changes are auto-accepted from the remote. If both sides changed the same content, a standard merge editor opens so you can resolve the conflict manually. Every configured location's top-level directory is added to `.gitignore` automatically.
-
-Sync state (last-synced timestamps) is stored in a dedicated `sync-state.yml` file rather than in issue frontmatter. This file is machine-local and is automatically gitignored. File names are updated automatically when an issue's title changes on GitHub, and files are moved to the correct folder if `syncTargets` are modified.
-
-## Commands
-
-- `Issues as Code: Refresh` — refreshes sync targets. If multiple targets exist, shows a picker to select which ones to refresh.
-- `Issues as Code: Publish to Remote` — publishes the currently open issue file to the remote.
-- `Issues as Code: Pull Remote Changes` — pulls remote changes for the current file.
-- `Issues as Code: Add Sync Target - Open issues on this repository` — detects the current repository and appends a default open-issues target.
-- `Issues as Code: Add Sync Target - My open issues on GitHub` — adds a sync target for your assigned issues across GitHub.
-- `Issues as Code: Add Sync Target - My open issues on this repository` — adds a sync target for your assigned issues on this repository.
+| Command                           | Description                                                                    |
+| --------------------------------- | ------------------------------------------------------------------------------ |
+| `Issues as Code: Refresh`         | Refreshes sync targets. Shows a picker when multiple targets exist.            |
+| `Issues as Code: Add Sync Target` | Adds a new sync target from available templates (e.g. open issues, my issues). |
 
 ## Documentation
 
-See [docs/how-to-develop.md](docs/how-to-develop.md) for the developer guide.
+- [Configuration Reference](docs/configuration.md) — all settings with descriptions and defaults
+- [Developer Guide](docs/how-to-develop.md) — setup, debugging, and project structure

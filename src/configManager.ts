@@ -40,6 +40,7 @@ export interface IssueConfig {
   syncTargets: SyncTarget[];
   autoFetchInterval: number;
   autoPullOnFetch: boolean;
+  keepGitIgnoreUpdated: boolean;
   syncStatePath: string;
   showSyncState: boolean;
   showSyncIcons: ShowSyncIconsConfig;
@@ -113,6 +114,7 @@ export function getConfig(
           cfg.get<number>("pullInterval") ??
           30,
         autoPullOnFetch: cfg.get<boolean>("autoPullOnFetch") ?? false,
+        keepGitIgnoreUpdated: cfg.get<boolean>("keepGitIgnoreUpdated") ?? true,
         syncStatePath,
         showSyncState: cfg.get<boolean>("showSyncState") ?? false,
         showSyncIcons: {
@@ -138,6 +140,7 @@ export function getConfig(
     syncTargets: [],
     autoFetchInterval: 30,
     autoPullOnFetch: false,
+    keepGitIgnoreUpdated: true,
     syncStatePath: path.join(workspaceFolderPath, ".issues", "sync-state.yml"),
     showSyncState: false,
     showSyncIcons: { newIssue: true, modified: true, synchronized: true },

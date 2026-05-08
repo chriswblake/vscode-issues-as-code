@@ -169,6 +169,12 @@
             }
           }
         },
+        "issuesAsCode.keepGitIgnoreUpdated": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically add sync target folders to .gitignore to prevent synced files from being committed. The sync state file is always gitignored regardless of this setting.",
+          "scope": "resource"
+        },
         "issuesAsCode.autoFetchInterval": {
           "type": "number",
           "default": 30,

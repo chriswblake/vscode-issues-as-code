@@ -4,6 +4,9 @@
 
 ### Added
 
+- **`issuesAsCode.keepGitIgnoreUpdated` setting**: Boolean (default: `true`). Automatically adds sync target folders to `.gitignore`. The sync state file is always gitignored regardless of this setting.
+- **Configuration reference docs**: Full settings reference moved to `docs/configuration.md`.
+
 - **"Add Sync Target" command**: A single command palette entry that dynamically loads available sync target presets from all installed plugins. Each preset is prefixed with the plugin name (e.g. "GitHub Issues: Open issues on this repository"). Replaces the three individual "Add Sync Target - ..." commands.
 - **Plugin-provided sync target presets**: Plugins now expose their own included configs via `getIncludedConfigs()` on the `PluginBootstrap` interface. Each plugin can mark one config as the default.
 
