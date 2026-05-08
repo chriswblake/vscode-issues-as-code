@@ -43,7 +43,9 @@ export interface IssueConfig {
   syncStatePath: string;
   showSyncState: boolean;
   showSyncIcons: ShowSyncIconsConfig;
+  showStatusBarIcon: boolean;
   enableExperimentalProjects: boolean;
+  rateLimitThreshold: number;
 }
 
 const DEFAULT_SYNC_STATE_PATH = ".issues/sync-state.yml";
@@ -118,8 +120,10 @@ export function getConfig(
           modified: rawShowSyncIcons.modified ?? true,
           synchronized: rawShowSyncIcons.synchronized ?? true,
         },
+        showStatusBarIcon: cfg.get<boolean>("showStatusBarIcon") ?? true,
         enableExperimentalProjects:
           cfg.get<boolean>("enable_experimental_projects") ?? false,
+        rateLimitThreshold: cfg.get<number>("rateLimitThreshold") ?? 5,
       };
     } catch {
       // Fall through to defaults
@@ -137,7 +141,9 @@ export function getConfig(
     syncStatePath: path.join(workspaceFolderPath, ".issues", "sync-state.yml"),
     showSyncState: false,
     showSyncIcons: { newIssue: true, modified: true, synchronized: true },
+    showStatusBarIcon: true,
     enableExperimentalProjects: false,
+    rateLimitThreshold: 5,
   };
 }
 

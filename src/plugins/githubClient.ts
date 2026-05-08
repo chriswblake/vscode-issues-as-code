@@ -1,6 +1,13 @@
 import { Octokit } from "@octokit/rest";
+import {
+  type RateLimitMonitor,
+  parseRateLimitHeaders,
+} from "../rateLimitMonitor";
 
 const GITHUB_API_VERSION = "2022-11-28";
+
+// Module-level monitor shared by all GitHubClient instances
+let sharedMonitor: RateLimitMonitor | null = null;
 
 export interface IssueData {
   number: number;
@@ -27,6 +34,55 @@ export class GitHubClient {
         },
       },
     });
+
+    // Hook into every response to extract rate limit headers
+    this.octokit.hook.after("request", (response) => {
+      if (sharedMonitor && response.headers) {
+        const info = parseRateLimitHeaders(
+          response.headers as Record<string, string | undefined>,
+          response.url,
+        );
+        if (info) {
+          sharedMonitor.update(info);
+        }
+      }
+    });
+
+    // Also capture rate limit headers from error responses (403/429)
+    this.octokit.hook.error("request", (error) => {
+      if (
+        sharedMonitor &&
+        error &&
+        typeof error === "object" &&
+        "response" in error
+      ) {
+        const resp = (
+          error as {
+            response?: {
+              headers?: Record<string, string | undefined>;
+              url?: string;
+            };
+          }
+        ).response;
+        if (resp?.headers) {
+          const info = parseRateLimitHeaders(resp.headers, resp.url);
+          if (info) {
+            sharedMonitor.update(info);
+          }
+        }
+      }
+      throw error;
+    });
+  }
+
+  /** Sets the shared rate limit monitor for all GitHubClient instances. */
+  static setRateLimitMonitor(monitor: RateLimitMonitor): void {
+    sharedMonitor = monitor;
+  }
+
+  /** Returns the shared rate limit monitor, if set. */
+  static getRateLimitMonitor(): RateLimitMonitor | null {
+    return sharedMonitor;
   }
 
   /**
@@ -72,13 +128,7 @@ export class GitHubClient {
     const searchResults = await this.octokit.paginate(
       this.octokit.rest.search.issuesAndPullRequests,
       { q: query, per_page: 100 },
-      (response) => {
-        const remaining = response.headers["x-ratelimit-remaining"];
-        if (remaining !== undefined) {
-          console.log(`[issuesAsCode] x-ratelimit-remaining: ${remaining}`);
-        }
-        return response.data;
-      },
+      (response) => response.data,
     );
 
     // Filter out pull requests and extract repo info from repository_url

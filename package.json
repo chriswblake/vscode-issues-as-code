@@ -51,6 +51,10 @@
       {
         "command": "issuesAsCode.fetchNow",
         "title": "Issues as Code: Fetch Now"
+      },
+      {
+        "command": "issuesAsCode.showSyncSummary",
+        "title": "Issues as Code: Show Sync Summary"
       }
     ],
     "configuration": {
@@ -253,6 +257,20 @@
           "default": false,
           "description": "Enable experimental GitHub Projects v2 metadata sync. Requires reloading VS Code to take effect.",
           "scope": "resource"
+        },
+        "issuesAsCode.rateLimitThreshold": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Percentage of API quota remaining that triggers an automatic sync pause. When the remaining quota drops to or below this threshold, automatic syncing is paused until the quota resets. Manual actions (Sync Now, Publish) are still allowed with a confirmation prompt.",
+          "scope": "window"
+        },
+        "issuesAsCode.showStatusBarIcon": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Issues as Code status bar icon. When enabled, a cloud icon is displayed in the status bar showing sync summary and API quota information on hover.",
+          "scope": "window"
         }
       }
     }
@@ -276,6 +294,6 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
     "test": "node ./out/test/runTests.js",
-    "test:unit": "mocha --ui tdd out/test/fileManager.test.js out/test/configManager.test.js out/test/syncManager.test.js out/test/syncStateManager.test.js out/test/issueDecorationProvider.test.js out/test/publishCodeLensProvider.test.js out/test/frontmatterCompletionProvider.test.js"
+    "test:unit": "mocha --ui tdd out/test/fileManager.test.js out/test/configManager.test.js out/test/syncManager.test.js out/test/syncStateManager.test.js out/test/issueDecorationProvider.test.js out/test/publishCodeLensProvider.test.js out/test/frontmatterCompletionProvider.test.js out/test/rateLimitMonitor.test.js out/test/statusBarManager.test.js"
   }
 }

@@ -15,6 +15,12 @@ import { SyncStateManager } from "./syncStateManager";
 import { IssueDecorationProvider } from "./issueDecorationProvider";
 import { PublishCodeLensProvider } from "./publishCodeLensProvider";
 import { FrontmatterCompletionProvider } from "./frontmatterCompletionProvider";
+import { RateLimitMonitor } from "./rateLimitMonitor";
+import {
+  StatusBarManager,
+  type SyncSummary,
+  type SyncTargetSummary,
+} from "./statusBarManager";
 import {
   initializePlugins,
   registerPluginCommands,
@@ -32,6 +38,9 @@ const syncManagers: SyncManager[] = [];
 let decorationProvider: IssueDecorationProvider | undefined;
 let codeLensProvider: PublishCodeLensProvider | undefined;
 let completionProvider: FrontmatterCompletionProvider | undefined;
+let rateLimitMonitor: RateLimitMonitor | undefined;
+let statusBarManager: StatusBarManager | undefined;
+const syncChangeUnsubscribers: (() => void)[] = [];
 
 // Serializes reinitializations so rapid config-change events don't overlap.
 // Each call is chained after the previous one; all callers await the same chain tail.
@@ -74,6 +83,22 @@ function registerProviders(context: vscode.ExtensionContext): void {
       codeLensProvider,
     ),
   );
+
+  // Rate limit monitor (pause logic)
+  rateLimitMonitor = new RateLimitMonitor();
+  GitHubClient.setRateLimitMonitor(rateLimitMonitor);
+  context.subscriptions.push({ dispose: () => rateLimitMonitor?.dispose() });
+
+  // Status bar manager (icon + tooltip + panel)
+  statusBarManager = new StatusBarManager();
+  statusBarManager.createStatusBar(context, "issuesAsCode.showSyncSummary");
+  context.subscriptions.push({ dispose: () => statusBarManager?.dispose() });
+
+  // Update status bar when rate limit state changes
+  const unsubscribeRateLimit = rateLimitMonitor.onDidChange(() => {
+    refreshStatusBarSummary();
+  });
+  context.subscriptions.push({ dispose: unsubscribeRateLimit });
 
   // Completion provider for frontmatter fields (state, labels, assignees)
   void GitHubClient.authenticate().then((client) => {
@@ -304,11 +329,55 @@ function registerCommands(context: vscode.ExtensionContext): void {
           void reinitializeAllFolders(context);
         }, CONFIG_CHANGE_DEBOUNCE_MS);
       }
+
+      // Update rate limit threshold without full reinitialize
+      if (event.affectsConfiguration("issuesAsCode.rateLimitThreshold")) {
+        const cfg = vscode.workspace.getConfiguration("issuesAsCode");
+        const threshold = cfg.get<number>("rateLimitThreshold") ?? 5;
+        rateLimitMonitor?.setThreshold(threshold);
+      }
+
+      // Update status bar visibility without full reinitialize
+      if (event.affectsConfiguration("issuesAsCode.showStatusBarIcon")) {
+        const cfg = vscode.workspace.getConfiguration("issuesAsCode");
+        const visible = cfg.get<boolean>("showStatusBarIcon") ?? true;
+        statusBarManager?.setVisible(visible);
+      }
+    }),
+    vscode.commands.registerCommand("issuesAsCode.showSyncSummary", () => {
+      statusBarManager?.showPanel();
     }),
   );
 
   // Plugin-specific commands
   registerPluginCommands(context, () => reinitializeAllFolders(context));
+}
+
+// ---------------------------------------------------------------------------
+// Status bar sync summary
+// ---------------------------------------------------------------------------
+
+/** Builds a SyncSummary snapshot from current state and pushes it to the status bar. */
+function refreshStatusBarSummary(): void {
+  if (!statusBarManager || !rateLimitMonitor) {
+    return;
+  }
+
+  const targets: SyncTargetSummary[] = syncManagers.map((m) => ({
+    name: m.displayName,
+    trackedIssueCount: m.trackedIssueCount,
+    lastFetchTime: m.lastFetchTime,
+    nextFetchTime: m.nextFetchTime,
+  }));
+
+  const summary: SyncSummary = {
+    targets,
+    rateLimits: rateLimitMonitor.getBucketInfo(),
+    isPaused: rateLimitMonitor.isPaused,
+    pauseReason: rateLimitMonitor.pauseReason,
+  };
+
+  statusBarManager.update(summary);
 }
 
 // ---------------------------------------------------------------------------
@@ -347,6 +416,12 @@ async function doReinitializeAllFolders(
 
   syncManagers.forEach((m) => m.dispose());
   syncManagers.length = 0;
+
+  // Clear old sync change listeners
+  for (const unsub of syncChangeUnsubscribers) {
+    unsub();
+  }
+  syncChangeUnsubscribers.length = 0;
 
   const folders = vscode.workspace.workspaceFolders ?? [];
   for (const folder of folders) {
@@ -424,6 +499,9 @@ async function activateFolder(
   ]);
   await applyFilesExclude(folder, config);
 
+  // Update rate limit threshold from this folder's config
+  rateLimitMonitor?.setThreshold(config.rateLimitThreshold);
+
   const stateManager = new SyncStateManager(config.syncStatePath);
   await stateManager.load();
   stateManager.watchForDeletion();
@@ -473,10 +551,17 @@ async function activateFolder(
       folder,
       context,
       stateManager,
+      rateLimitMonitor,
     );
     await manager.start();
     syncManagers.push(manager);
     context.subscriptions.push({ dispose: () => manager.dispose() });
+
+    // Subscribe to sync changes for status bar updates
+    const unsubscribeSyncChange = manager.onSyncChange(() => {
+      refreshStatusBarSummary();
+    });
+    syncChangeUnsubscribers.push(unsubscribeSyncChange);
   }
 
   // Update decoration provider with all active managed locations and config
@@ -524,11 +609,19 @@ async function activateFolder(
     });
     completionProvider.update(completionTargets);
   }
+
+  // Update status bar visibility and summary
+  statusBarManager?.setVisible(config.showStatusBarIcon);
+  refreshStatusBarSummary();
 }
 
 export function deactivate(): void {
   syncManagers.forEach((m) => m.dispose());
   syncManagers.length = 0;
+  rateLimitMonitor?.dispose();
+  rateLimitMonitor = undefined;
+  statusBarManager?.dispose();
+  statusBarManager = undefined;
 }
 
 /**

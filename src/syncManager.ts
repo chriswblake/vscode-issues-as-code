@@ -10,6 +10,7 @@ import {
 import { type SyncTarget, type IssueConfig } from "./configManager";
 import { SyncStateManager, type RemoteIssueInfo } from "./syncStateManager";
 import { type PrimarySyncPlugin, type PullItem } from "./plugins/syncPlugin";
+import { type RateLimitMonitor } from "./rateLimitMonitor";
 
 // Lazy vscode import so unit tests can stub it out
 function vscode(): typeof vscodeType {
@@ -51,6 +52,9 @@ export class SyncManager {
   private pullTimer: NodeJS.Timeout | null = null;
   private watcher: vscodeType.FileSystemWatcher | null = null;
   private isDisposed = false;
+  private _lastFetchTime: Date | null = null;
+  private _nextFetchTime: Date | null = null;
+  private syncChangeListeners: (() => void)[] = [];
 
   constructor(
     readonly plugin: PrimarySyncPlugin,
@@ -59,10 +63,41 @@ export class SyncManager {
     private workspaceFolder: vscodeType.WorkspaceFolder,
     private context: vscodeType.ExtensionContext,
     readonly stateManager: SyncStateManager,
+    private rateLimitMonitor?: RateLimitMonitor,
   ) {}
 
   get workspaceFolderFsPath(): string {
     return this.workspaceFolder.uri.fsPath;
+  }
+
+  /** When the last successful fetch completed. */
+  get lastFetchTime(): Date | null {
+    return this._lastFetchTime;
+  }
+
+  /** When the next scheduled fetch is expected. */
+  get nextFetchTime(): Date | null {
+    return this._nextFetchTime;
+  }
+
+  /** Number of tracked issues under this target. */
+  get trackedIssueCount(): number {
+    return this.stateManager.getFilesUnderLocation(this.target.filesDir).size;
+  }
+
+  /** Display name for this target (relative path from workspace). */
+  get displayName(): string {
+    return path.relative(this.workspaceFolder.uri.fsPath, this.target.filesDir);
+  }
+
+  /** Register a listener for sync state changes. */
+  onSyncChange(listener: () => void): () => void {
+    this.syncChangeListeners.push(listener);
+    return () => {
+      this.syncChangeListeners = this.syncChangeListeners.filter(
+        (l) => l !== listener,
+      );
+    };
   }
 
   /** Returns true if the given file path is managed by this sync manager. */
@@ -93,8 +128,10 @@ export class SyncManager {
 
     // Start periodic pull
     const intervalMs = this.config.autoFetchInterval * 60 * 1000;
+    this._nextFetchTime = new Date(Date.now() + intervalMs);
     this.pullTimer = setInterval(() => {
       void this.pullAll();
+      this._nextFetchTime = new Date(Date.now() + intervalMs);
     }, intervalMs);
 
     // Initial pull on activation
@@ -117,12 +154,32 @@ export class SyncManager {
     }
     this.debounceTimers.clear();
     this.extensionWriteMtimeMs.clear();
+    this.syncChangeListeners = [];
+  }
+
+  private notifySyncChange(): void {
+    for (const listener of this.syncChangeListeners) {
+      try {
+        listener();
+      } catch {
+        // Ignore listener errors
+      }
+    }
   }
 
   /** Pull all remote items for this target via the plugin. */
   async pullAll(): Promise<void> {
+    if (this.rateLimitMonitor?.isPaused) {
+      console.log(
+        `[issuesAsCode] pullAll skipped — rate limit paused: ${this.rateLimitMonitor.pauseReason}`,
+      );
+      return;
+    }
+
     try {
       await this.pullTarget();
+      this._lastFetchTime = new Date();
+      this.notifySyncChange();
     } catch (err) {
       console.error(
         `[issuesAsCode] pullTarget "${this.target.filesDir}" failed:`, //
@@ -440,6 +497,22 @@ export class SyncManager {
     filePath: string,
     options: { interactive?: boolean } = {},
   ): Promise<string | undefined> {
+    // Rate limit pause check
+    if (this.rateLimitMonitor?.isPaused) {
+      if (options.interactive) {
+        const choice = await vscode().window.showWarningMessage(
+          `API rate limit is low (${this.rateLimitMonitor.pauseReason}). Push anyway?`,
+          "Push Anyway",
+          "Cancel",
+        );
+        if (choice !== "Push Anyway") {
+          return undefined;
+        }
+      } else {
+        return undefined;
+      }
+    }
+
     const raw = await fs.promises.readFile(filePath, "utf8");
     if (hasConflictMarkers(raw)) {
       return undefined;
