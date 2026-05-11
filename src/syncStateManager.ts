@@ -1,16 +1,17 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as yaml from 'js-yaml';
+import * as fs from "fs";
+import * as path from "path";
+import * as yaml from "js-yaml";
 
 /** Read-only snapshot of a remote item at the time it was last synced. */
 export interface RemoteIssueInfo {
   number: number;
-  state: 'open' | 'closed';
+  state: "open" | "closed";
   updated_at: string;
   closed_at: string | null;
   html_url: string;
   node_id?: string;
   repository?: string;
+  last_modified_by?: string;
 }
 
 /** A reference from a file entry to a plugin record. */
@@ -61,10 +62,10 @@ export class SyncStateManager {
 
   async load(): Promise<void> {
     try {
-      const raw = await fs.promises.readFile(this.statePath, 'utf8');
+      const raw = await fs.promises.readFile(this.statePath, "utf8");
       const parsed = yaml.load(raw) as SyncStateFile | null;
 
-      if (parsed && typeof parsed === 'object' && 'files' in parsed) {
+      if (parsed && typeof parsed === "object" && "files" in parsed) {
         this.state = parsed as SyncStateFile;
       } else {
         this.state = { files: {} };
@@ -101,7 +102,10 @@ export class SyncStateManager {
   }
 
   /** Returns the plugin data record for a file's remote key, or undefined. */
-  getPluginData(filePath: string, pluginId: string): Record<string, unknown> | undefined {
+  getPluginData(
+    filePath: string,
+    pluginId: string,
+  ): Record<string, unknown> | undefined {
     const entry = this.state.files[filePath];
     const ref = entry?.plugins?.[pluginId];
     if (!ref) {
@@ -115,7 +119,12 @@ export class SyncStateManager {
     return this.state.files[filePath]?.plugins?.[pluginId]?.key;
   }
 
-  async setSyncedAt(filePath: string, remote: RemoteIssueInfo, pluginId: string, remoteKey: string): Promise<void> {
+  async setSyncedAt(
+    filePath: string,
+    remote: RemoteIssueInfo,
+    pluginId: string,
+    remoteKey: string,
+  ): Promise<void> {
     // Update the plugin data section
     if (!this.state.pluginData) {
       this.state.pluginData = {};
@@ -131,24 +140,99 @@ export class SyncStateManager {
       html_url: remote.html_url,
       ...(remote.node_id ? { node_id: remote.node_id } : {}),
       ...(remote.repository ? { repository: remote.repository } : {}),
+      ...(remote.last_modified_by
+        ? { last_modified_by: remote.last_modified_by }
+        : {}),
     };
 
     // Update the files section
-    const existing = this.state.files[filePath] ?? { local_written_at: '' };
+    const existing = this.state.files[filePath] ?? { local_written_at: "" };
     const existingPlugins = existing.plugins ?? {};
     this.state.files[filePath] = {
       ...existing,
       local_written_at: new Date().toISOString(),
-      plugins: { ...existingPlugins, [pluginId]: { key: remoteKey, synced_at: remote.updated_at } },
+      plugins: {
+        ...existingPlugins,
+        [pluginId]: { key: remoteKey, synced_at: remote.updated_at },
+      },
     };
 
     await this.save();
     this.notifyChange(filePath);
   }
 
+  /**
+   * Updates only the plugin data section without touching the file's synced_at or local_written_at.
+   * Used when remote has newer data but we don't want to apply it locally yet.
+   */
+  async updatePluginDataOnly(
+    filePath: string,
+    remote: RemoteIssueInfo,
+    pluginId: string,
+    remoteKey: string,
+  ): Promise<void> {
+    if (!this.state.pluginData) {
+      this.state.pluginData = {};
+    }
+    if (!this.state.pluginData[pluginId]) {
+      this.state.pluginData[pluginId] = {};
+    }
+    this.state.pluginData[pluginId][remoteKey] = {
+      number: remote.number,
+      state: remote.state,
+      updated_at: remote.updated_at,
+      closed_at: remote.closed_at,
+      html_url: remote.html_url,
+      ...(remote.node_id ? { node_id: remote.node_id } : {}),
+      ...(remote.repository ? { repository: remote.repository } : {}),
+      ...(remote.last_modified_by
+        ? { last_modified_by: remote.last_modified_by }
+        : {}),
+    };
+
+    // Ensure the file entry has a plugin ref (so we can look it up)
+    const existing = this.state.files[filePath];
+    if (existing && !existing.plugins?.[pluginId]) {
+      existing.plugins = {
+        ...existing.plugins,
+        [pluginId]: { key: remoteKey, synced_at: "" },
+      };
+    }
+
+    await this.save();
+    this.notifyChange(filePath);
+  }
+
+  /**
+   * Returns true if the remote has been updated more recently than the local sync.
+   * Detected by comparing pluginData.updated_at with the file's synced_at.
+   */
+  hasPendingRemoteChanges(filePath: string, pluginId: string): boolean {
+    const entry = this.state.files[filePath];
+    const ref = entry?.plugins?.[pluginId];
+    if (!ref?.key || !ref.synced_at) {
+      return false;
+    }
+    const pluginData = this.state.pluginData?.[pluginId]?.[ref.key];
+    if (!pluginData) {
+      return false;
+    }
+    const remoteUpdatedAt = pluginData.updated_at as string | undefined;
+    if (!remoteUpdatedAt) {
+      return false;
+    }
+    return new Date(remoteUpdatedAt) > new Date(ref.synced_at);
+  }
+
   /** Copies an existing SyncStateEntry to a new file path, then persists. */
-  async setSyncedAtEntry(filePath: string, entry: SyncStateEntry): Promise<void> {
-    this.state.files[filePath] = { ...entry, local_written_at: new Date().toISOString() };
+  async setSyncedAtEntry(
+    filePath: string,
+    entry: SyncStateEntry,
+  ): Promise<void> {
+    this.state.files[filePath] = {
+      ...entry,
+      local_written_at: new Date().toISOString(),
+    };
     await this.save();
     this.notifyChange(filePath);
   }
@@ -204,7 +288,7 @@ export class SyncStateManager {
     await fs.promises.writeFile(
       this.statePath, //
       yaml.dump(this.state, { lineWidth: -1, noRefs: true }),
-      'utf8',
+      "utf8",
     );
   }
 

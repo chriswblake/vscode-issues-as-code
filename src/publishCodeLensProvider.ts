@@ -1,11 +1,12 @@
-import * as path from 'path';
-import type * as vscodeType from 'vscode';
-import type { SyncStateManager } from './syncStateManager';
+import * as fs from "fs";
+import * as path from "path";
+import type * as vscodeType from "vscode";
+import type { SyncStateManager } from "./syncStateManager";
 
 // Lazy vscode import so unit tests can run without a VS Code instance
 function vscode(): typeof vscodeType {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  return require('vscode');
+  return require("vscode");
 }
 
 interface ManagedTarget {
@@ -13,18 +14,26 @@ interface ManagedTarget {
   pluginId: string;
   displayName: string;
   stateManager: SyncStateManager;
+  readOnly?: boolean;
 }
 
 /**
  * Provides CodeLens actions on task files.
  * - Unpublished files: shows "▶ Publish to <service>" button.
- * - Published files: shows "owner/repo#42 → Open in Browser" button.
+ * - Published files:
+ *   - Line 1: "owner/repo#42 → Open in Browser" link.
+ *   - Line 2: Sync details — remote status, "Pull Changes" (if pending), "Sync Now" (if modified locally).
+ * - Read-only files: shows only the remote reference link (no publish or sync buttons).
  */
 export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
   private _emitter: vscodeType.EventEmitter<void> | undefined;
   private targets: ManagedTarget[] = [];
 
-  readonly onDidChangeCodeLenses: vscodeType.Event<void> = (listener, thisArgs, disposables) => {
+  readonly onDidChangeCodeLenses: vscodeType.Event<void> = (
+    listener,
+    thisArgs,
+    disposables,
+  ) => {
     if (!this._emitter) {
       try {
         this._emitter = new (vscode().EventEmitter)();
@@ -41,6 +50,11 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
     this._emitter?.fire();
   }
 
+  /** Signal that CodeLens should be recomputed (e.g. after state changes). */
+  refresh(): void {
+    this._emitter?.fire();
+  }
+
   provideCodeLenses(
     document: vscodeType.TextDocument,
     _token: vscodeType.CancellationToken,
@@ -49,12 +63,13 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
 
     // Only provide CodeLens for .md files inside managed target directories
     const matchingTarget = this.targets.find(
-      (t) => filePath === t.filesDir || filePath.startsWith(t.filesDir + path.sep),
+      (t) =>
+        filePath === t.filesDir || filePath.startsWith(t.filesDir + path.sep),
     );
     if (!matchingTarget) {
       return [];
     }
-    if (!filePath.endsWith('.md')) {
+    if (!filePath.endsWith(".md")) {
       return [];
     }
 
@@ -63,12 +78,98 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
     const pluginRef = stateEntry?.plugins?.[matchingTarget.pluginId];
 
     if (pluginRef?.key) {
-      // Published — show remote reference CodeLens
-      return [this.createRemoteRefCodeLens(document, pluginRef.key, matchingTarget.pluginId, matchingTarget.stateManager)];
+      // Published — show CodeLens inside the plugin's frontmatter section
+      const sectionLine = findFrontmatterSectionLine(
+        document,
+        matchingTarget.pluginId,
+      );
+
+      // Both CodeLens on the first field line so they stack together under "gh-issues:"
+      const lensLine = sectionLine + 1;
+
+      // Line 1: Remote reference link
+      const lenses = [
+        this.createRemoteRefCodeLens(
+          document, //
+          pluginRef.key,
+          matchingTarget.pluginId,
+          matchingTarget.stateManager,
+          lensLine,
+        ),
+      ];
+
+      // Line 2: Sync details
+      if (!matchingTarget.readOnly) {
+        const hasPending = matchingTarget.stateManager.hasPendingRemoteChanges(
+          filePath,
+          matchingTarget.pluginId,
+        );
+
+        // Remote status info
+        const statusText = this.buildRemoteStatusText(
+          filePath,
+          matchingTarget.pluginId,
+          matchingTarget.stateManager,
+        );
+        if (statusText) {
+          lenses.push(
+            this.createStatusCodeLens(document, lensLine, statusText),
+          );
+        }
+
+        // "Pull Changes" button when remote has pending changes
+        if (hasPending) {
+          lenses.push(this.createPullChangesCodeLens(document, lensLine));
+        }
+
+        // "Sync Now" button when locally modified and no pending remote changes
+        if (!hasPending && isFileModified(filePath, stateEntry)) {
+          lenses.push(this.createSyncNowCodeLens(document, lensLine));
+        }
+      }
+
+      return lenses;
     }
 
-    // Unpublished — show publish button at line 0
-    return [this.createPublishCodeLens(document, 0, matchingTarget.displayName)];
+    // Unpublished — show publish button (only for writable targets)
+    if (matchingTarget.readOnly) {
+      return [];
+    }
+    const publishLine = findFrontmatterSectionLine(
+      document,
+      matchingTarget.pluginId,
+    );
+    return [
+      this.createPublishCodeLens(
+        document,
+        publishLine,
+        matchingTarget.displayName,
+      ),
+    ];
+  }
+
+  private buildRemoteStatusText(
+    filePath: string,
+    pluginId: string,
+    stateManager: SyncStateManager,
+  ): string | null {
+    const pluginData = stateManager.getPluginData(filePath, pluginId);
+    if (!pluginData) {
+      return null;
+    }
+
+    const updatedAt = pluginData.updated_at as string | undefined;
+    if (!updatedAt) {
+      return null;
+    }
+
+    const timeStr = formatRelativeTime(new Date(updatedAt));
+
+    const lastModifiedBy = pluginData.last_modified_by as string | undefined;
+    if (lastModifiedBy) {
+      return `Remote was last modified ${timeStr} by @${lastModifiedBy}.`;
+    }
+    return `Remote was last modified ${timeStr}.`;
   }
 
   private createRemoteRefCodeLens(
@@ -76,34 +177,83 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
     remoteKey: string,
     pluginId: string,
     stateManager: SyncStateManager,
+    line: number,
   ): vscodeType.CodeLens {
     const vs = vscode();
-    const range = new vs.Range(0, 0, 0, 0);
+    const range = new vs.Range(line, 0, line, 0);
 
     // Parse remoteKey "owner/repo/42" → "owner/repo#42"
-    const parts = remoteKey.split('/');
+    const parts = remoteKey.split("/");
     let label: string;
     if (parts.length >= 3) {
       const number = parts[parts.length - 1];
-      const repo = parts.slice(0, -1).join('/');
+      const repo = parts.slice(0, -1).join("/");
       label = `${repo}#${number}`;
     } else {
       label = remoteKey;
     }
 
     // Get html_url from plugin data in state
-    const pluginData = stateManager.getPluginData(document.uri.fsPath, pluginId);
+    const pluginData = stateManager.getPluginData(
+      document.uri.fsPath,
+      pluginId,
+    );
     const htmlUrl = pluginData?.html_url as string | undefined;
 
-    const url = htmlUrl
-      ?? (parts.length >= 3
-        ? `https://github.com/${parts.slice(0, -1).join('/')}/issues/${parts[parts.length - 1]}`
+    const url =
+      htmlUrl ??
+      (parts.length >= 3
+        ? `https://github.com/${parts.slice(0, -1).join("/")}/issues/${parts[parts.length - 1]}`
         : undefined);
 
     return new vs.CodeLens(range, {
       title: `🔗 ${label}`,
-      command: url ? 'vscode.open' : '',
+      command: url ? "vscode.open" : "",
       arguments: url ? [vs.Uri.parse(url)] : [],
+    });
+  }
+
+  private createStatusCodeLens(
+    document: vscodeType.TextDocument, //
+    line: number,
+    statusText: string,
+  ): vscodeType.CodeLens {
+    const vs = vscode();
+    const range = new vs.Range(line, 0, line, 0);
+
+    return new vs.CodeLens(range, {
+      title: statusText,
+      command: "",
+      arguments: [],
+    });
+  }
+
+  private createPullChangesCodeLens(
+    document: vscodeType.TextDocument, //
+    line: number,
+  ): vscodeType.CodeLens {
+    const vs = vscode();
+    const range = new vs.Range(line, 0, line, 0);
+
+    return new vs.CodeLens(range, {
+      title: "⬇ Pull Changes",
+      tooltip: "There are pending changes on the remote.",
+      command: "issuesAsCode.pullFile",
+      arguments: [document.uri],
+    });
+  }
+
+  private createSyncNowCodeLens(
+    document: vscodeType.TextDocument, //
+    line: number,
+  ): vscodeType.CodeLens {
+    const vs = vscode();
+    const range = new vs.Range(line, 0, line, 0);
+
+    return new vs.CodeLens(range, {
+      title: "⟳ Sync Now",
+      command: "issuesAsCode.publishFile",
+      arguments: [document.uri],
     });
   }
 
@@ -117,8 +267,105 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
 
     return new vs.CodeLens(range, {
       title: `▶ Publish to ${displayName}`,
-      command: 'issuesAsCode.publishFile',
+      command: "issuesAsCode.publishFile",
       arguments: [document.uri],
     });
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Finds the line number of the frontmatter section for the given plugin ID.
+ * Returns 0 (start of file) if the section is not found.
+ *
+ * Frontmatter looks like:
+ * ```
+ * ---
+ * gh-issues:
+ *   title: Some issue
+ * ---
+ * ```
+ * The CodeLens is positioned on the `gh-issues:` line so it appears above
+ * that section in the editor.
+ */
+export function findFrontmatterSectionLine(
+  document: vscodeType.TextDocument,
+  sectionKey: string,
+): number {
+  const text = document.getText();
+  const lines = text.split(/\r?\n/);
+
+  if (!lines[0]?.trim().startsWith("---")) {
+    return 0;
+  }
+
+  let inFrontmatter = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (i === 0 && lines[i].trim() === "---") {
+      inFrontmatter = true;
+      continue;
+    }
+    if (inFrontmatter && lines[i].trim() === "---") {
+      break;
+    }
+    if (inFrontmatter && new RegExp(`^${sectionKey}:`).test(lines[i])) {
+      return i;
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * Returns true if the saved file has been modified since the extension last wrote it.
+ * Provides a 1 second tolerance for filesystem timestamp differences.
+ */
+export function isFileModified(
+  filePath: string,
+  stateEntry: { local_written_at: string } | undefined,
+): boolean {
+  if (!stateEntry) {
+    return false;
+  }
+  try {
+    const stat = fs.statSync(filePath);
+    const localWrittenAt = new Date(stateEntry.local_written_at).getTime();
+    return stat.mtimeMs > localWrittenAt + 1000;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Formats a date as a relative time string (e.g., "3 minutes ago", "2 hours ago").
+ * Timezone-independent since it compares against the current time.
+ */
+export function formatRelativeTime(date: Date): string {
+  const now = Date.now();
+  const diffMs = now - date.getTime();
+
+  if (diffMs < 0) {
+    return "just now";
+  }
+
+  const seconds = Math.floor(diffMs / 1000);
+  if (seconds < 60) {
+    return "just now";
+  }
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) {
+    return minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
+  }
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  }
+
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
 }

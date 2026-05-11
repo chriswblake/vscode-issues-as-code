@@ -1,7 +1,7 @@
-import { Octokit } from '@octokit/rest';
-import type { IssueFrontmatter } from '../fileManager';
-import type { RemoteIssueInfo } from '../syncStateManager';
-import type { MetadataPlugin, PluginContext } from './syncPlugin';
+import { Octokit } from "@octokit/rest";
+import type { IssueFrontmatter } from "../fileManager";
+import type { RemoteIssueInfo } from "../syncStateManager";
+import type { MetadataPlugin, PluginContext } from "./syncPlugin";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -26,7 +26,7 @@ export interface ProjectFieldData {
  * Does not own file body or naming — only adds to the 'gh-projects' frontmatter section.
  */
 export class GhProjectsPlugin implements MetadataPlugin {
-  readonly id = 'gh-projects';
+  readonly id = "gh-projects";
 
   constructor(private readonly octokit: Octokit) {}
 
