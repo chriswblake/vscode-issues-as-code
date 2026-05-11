@@ -1,5 +1,9 @@
-import type { IssueFrontmatter } from '../fileManager';
-import type { SyncStateManager, SyncStateEntry, RemoteIssueInfo } from '../syncStateManager';
+import type { IssueFrontmatter } from "../fileManager";
+import type {
+  SyncStateManager,
+  SyncStateEntry,
+  RemoteIssueInfo,
+} from "../syncStateManager";
 
 // ---------------------------------------------------------------------------
 // Plugin result types
@@ -60,11 +64,17 @@ export interface PrimarySyncPlugin {
   /** Human-readable display name (e.g. 'GitHub Issues'). */
   readonly displayName: string;
 
+  /** Default file naming template when none is specified in the sync target. */
+  readonly defaultFileName: string;
+
   /**
    * Discovers and fetches remote items matching the target's plugin config.
    * Returns one PullItem per remote task/issue.
    */
-  pull(pluginConfig: Record<string, unknown>, context: PluginContext): Promise<PullItem[]>;
+  pull(
+    pluginConfig: Record<string, unknown>,
+    context: PluginContext,
+  ): Promise<PullItem[]>;
 
   /**
    * Pushes a local file's content to the remote service.
@@ -83,19 +93,29 @@ export interface PrimarySyncPlugin {
    * Renders a filename from the naming template and remote data tokens.
    * Handles slug generation and character sanitization.
    */
-  buildFileName(namingTokens: Record<string, string | number>, template: string): string;
+  buildFileName(
+    namingTokens: Record<string, string | number>,
+    template: string,
+  ): string;
 
   /**
    * Returns the plugin-specific numeric/string ID, indicating the file is published.
    * Checks the state entry first (preferred), falls back to frontmatter for legacy files.
    */
-  getRemoteId(frontmatter: IssueFrontmatter, stateEntry?: SyncStateEntry): number | string | undefined;
+  getRemoteId(
+    frontmatter: IssueFrontmatter,
+    stateEntry?: SyncStateEntry,
+  ): number | string | undefined;
 
   /**
    * Returns the unique remote key for a file (e.g. "owner/repo/42").
    * Checks the state entry first, falls back to frontmatter + config.
    */
-  getRemoteKey(frontmatter: IssueFrontmatter, pluginConfig: Record<string, unknown>, stateEntry?: SyncStateEntry): string | undefined;
+  getRemoteKey(
+    frontmatter: IssueFrontmatter,
+    pluginConfig: Record<string, unknown>,
+    stateEntry?: SyncStateEntry,
+  ): string | undefined;
 
   /**
    * Finds an existing local file matching a remote item by name/frontmatter heuristic.
@@ -112,7 +132,31 @@ export interface PrimarySyncPlugin {
    * Infers a title for a new file that has no explicit title in frontmatter.
    * Used when creating a new remote item from a local file.
    */
-  inferTitle(filePath: string, frontmatter: IssueFrontmatter, body: string): string;
+  inferTitle(
+    filePath: string,
+    frontmatter: IssueFrontmatter,
+    body: string,
+  ): string;
+
+  /**
+   * Filters pulled items to keep only those matching the target config.
+   * Removes items that don't match the target's filter criteria.
+   * This prevents orphaned entries when the plugin returns unexpected results.
+   */
+  validatePulledItems(
+    items: PullItem[],
+    pluginConfig: Record<string, unknown>,
+  ): PullItem[];
+
+  /**
+   * Checks if a file's content matches the target config criteria.
+   * Used to identify and remove orphaned entries that no longer match filters.
+   */
+  fileMatchesTargetConfig(
+    frontmatter: IssueFrontmatter,
+    pluginConfig: Record<string, unknown>,
+    syncedAt?: string,
+  ): boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +188,27 @@ export interface MetadataPlugin {
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
+// Included Sync Target Config — preset configs offered by plugins
+// ---------------------------------------------------------------------------
+
+/**
+ * A preset sync target config provided by a plugin.
+ * Shown in the "Add Sync Target" command palette QuickPick.
+ */
+export interface IncludedSyncTargetConfig {
+  /** Display label (e.g. "Open issues on this repository"). */
+  label: string;
+  /** Optional description shown alongside the label (e.g. "owner/repo"). */
+  description?: string;
+  /** The sync target config to add. */
+  target: import("../configManager").SyncTarget;
+  /** Whether this is the plugin's default config (used for auto-setup). */
+  isDefault?: boolean;
+  /** Returns true if a matching target already exists in the current config. */
+  isDuplicate(currentTargets: import("../configManager").SyncTarget[]): boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Plugin Bootstrap — generic interface for plugin initialization
 // ---------------------------------------------------------------------------
 
@@ -154,6 +219,9 @@ export interface MetadataPlugin {
 export interface PluginBootstrap {
   /** Plugin identifier (must match PrimarySyncPlugin.id). */
   readonly pluginId: string;
+
+  /** Human-readable display name (e.g. "GitHub Issues"). */
+  readonly displayName: string;
 
   /**
    * Initialize the plugin (e.g. authenticate) and register it in the registry.
@@ -171,10 +239,28 @@ export interface PluginBootstrap {
   ): void;
 
   /**
+   * Returns preset sync target configs available for a workspace folder.
+   * Configs that require repo detection or auth may be omitted if unavailable.
+   */
+  getIncludedConfigs(workspaceFolder: {
+    uri: { fsPath: string };
+  }): Promise<IncludedSyncTargetConfig[]>;
+
+  /**
    * Attempt to detect default sync targets for a workspace folder.
    * Returns null if this plugin cannot provide defaults for the folder.
    */
-  detectDefaults(workspaceFolder: { uri: { fsPath: string } }): Promise<import('../configManager').SyncTarget[] | null>;
+  detectDefaults(workspaceFolder: {
+    uri: { fsPath: string };
+  }): Promise<import("../configManager").SyncTarget[] | null>;
+
+  /**
+   * Persist default sync targets to workspace settings if none are configured.
+   * Returns the persisted targets (with relative paths), or null if nothing was persisted.
+   */
+  persistDefaults(workspaceFolder: {
+    uri: { fsPath: string };
+  }): Promise<import("../configManager").SyncTarget[] | null>;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import matter from 'gray-matter';
+import * as fs from "fs";
+import * as path from "path";
+import matter from "gray-matter";
 
 /**
  * Generic frontmatter type — each key is a plugin namespace (e.g. 'gh-issues')
@@ -11,8 +11,10 @@ export interface IssueFrontmatter {
 }
 
 /** Reads and parses a Markdown issue file into frontmatter + body. */
-export async function readIssueFile(filePath: string): Promise<{ frontmatter: IssueFrontmatter; body: string }> {
-  const raw = await fs.promises.readFile(filePath, 'utf8');
+export async function readIssueFile(
+  filePath: string,
+): Promise<{ frontmatter: IssueFrontmatter; body: string }> {
+  const raw = await fs.promises.readFile(filePath, "utf8");
   const { data, content } = matter(raw);
 
   // Pass through all frontmatter sections as-is — plugins own their namespaces
@@ -27,13 +29,23 @@ export async function readIssueFile(filePath: string): Promise<{ frontmatter: Is
 }
 
 /** Writes frontmatter + body to a Markdown file using gray-matter. */
-export async function writeIssueFile(filePath: string, frontmatter: IssueFrontmatter, body: string): Promise<void> {
+export async function writeIssueFile(
+  filePath: string,
+  frontmatter: IssueFrontmatter,
+  body: string,
+): Promise<void> {
   await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
   const serialized = serializeIssueFile(frontmatter, body);
-  await fs.promises.writeFile(filePath, serialized, 'utf8');
+  await fs.promises.writeFile(filePath, serialized, "utf8");
 }
 
 /** Serializes frontmatter + body to a Markdown string. */
-export function serializeIssueFile(frontmatter: IssueFrontmatter, body: string): string {
-  return matter.stringify('\n' + body, frontmatter as unknown as Record<string, unknown>);
+export function serializeIssueFile(
+  frontmatter: IssueFrontmatter,
+  body: string,
+): string {
+  return matter.stringify(
+    "\n" + body,
+    frontmatter as unknown as Record<string, unknown>,
+  );
 }

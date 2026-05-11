@@ -2,7 +2,7 @@
   "name": "vscode-issues-as-code",
   "displayName": "Issues as Code",
   "description": "Synchronize GitHub issues to a local .issues/ folder",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "engines": {
     "node": "^22.0.0",
     "vscode": "^1.85.0"
@@ -17,53 +17,39 @@
   "contributes": {
     "commands": [
       {
-        "command": "issuesAsCode.pullNow",
-        "title": "Issues as Code: Pull Now"
-      },
-      {
-        "command": "issuesAsCode.pushNow",
-        "title": "Issues as Code: Push Now"
-      },
-      {
         "command": "issuesAsCode.refresh",
-        "title": "Issues as Code: Refresh All"
+        "title": "Issues as Code: Refresh"
       },
       {
-        "command": "issuesAsCode.addOpenIssuesDefaultConfig",
-        "title": "Issues as Code: Add Open Issues Default Config"
-      },
-      {
-        "command": "issuesAsCode.addMyIssuesOnGitHub",
-        "title": "Issues as Code: Add setting - My issues on GitHub"
-      },
-      {
-        "command": "issuesAsCode.addMyIssuesOnThisRepo",
-        "title": "Issues as Code: Add setting - My issues on this repository"
-      },
-      {
-        "command": "issuesAsCode.publishFile",
-        "title": "Issues as Code: Publish to Remote"
+        "command": "issuesAsCode.addSyncTarget",
+        "title": "Issues as Code: Add Sync Target"
       }
     ],
     "configuration": {
       "title": "Issues as Code",
       "properties": {
-        "issuesAsCode.fileNaming": {
+        "issuesAsCode.autoPush": {
           "type": "string",
-          "default": "{issue-num}-{issue-title}",
-          "description": "Template for issue file names.",
+          "enum": [
+            "afterDelay",
+            "onFocusChange",
+            "onWindowChange",
+            "off"
+          ],
+          "default": "afterDelay",
+          "description": "Controls when local changes are automatically pushed to the remote. 'afterDelay' pushes after the configured delay. 'onFocusChange' pushes when the editor loses focus. 'onWindowChange' pushes when the VS Code window loses focus. 'off' disables auto-push entirely. Manual saves (Ctrl+S) always push immediately regardless of this setting.",
           "scope": "resource"
         },
-        "issuesAsCode.pushOnSaveDelay": {
+        "issuesAsCode.autoPushDelay": {
           "type": "number",
-          "default": 60,
-          "description": "Seconds to wait after last save before pushing to GitHub.",
+          "default": 60000,
+          "description": "Milliseconds to wait after last save before pushing to the remote. Only used when autoPush is set to 'afterDelay'.",
           "scope": "resource"
         },
         "issuesAsCode.syncTargets": {
           "type": "array",
           "default": [],
-          "description": "List of sync targets. Each entry defines a local folder and one or more plugin configurations (e.g. gh-issues). When empty, the extension falls back to auto-detecting the workspace repository.",
+          "description": "List of sync targets. Each entry defines a local folder and one or more plugin configurations (e.g. gh-issues). When empty and a GitHub remote is detected, the extension automatically adds a default open-issues target to workspace settings.",
           "scope": "resource",
           "items": {
             "type": "object",
@@ -78,6 +64,11 @@
               "naming": {
                 "type": "string",
                 "description": "Template for file names. Use tokens like {gh-issues.number} and {gh-issues.title}."
+              },
+              "readOnly": {
+                "type": "boolean",
+                "default": false,
+                "description": "When true, files are updated from remote but local changes are never pushed. Local edits are overwritten on each pull. Files are made read-only on disk."
               },
               "gh-issues": {
                 "type": "object",
@@ -172,10 +163,22 @@
             }
           }
         },
-        "issuesAsCode.pullInterval": {
+        "issuesAsCode.keepGitIgnoreUpdated": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically add sync target folders to .gitignore to prevent synced files from being committed. The sync state file is always gitignored regardless of this setting.",
+          "scope": "resource"
+        },
+        "issuesAsCode.autoFetchInterval": {
           "type": "number",
           "default": 30,
-          "description": "Minutes between automatic pulls from GitHub.",
+          "description": "Minutes between automatic fetches from the remote. Fetching checks for remote changes and stores them locally without applying to task files.",
+          "scope": "resource"
+        },
+        "issuesAsCode.autoPullOnFetch": {
+          "type": "boolean",
+          "default": false,
+          "description": "When enabled, automatically applies remote changes to local task files after fetching, as long as there are no local modifications that would conflict.",
           "scope": "resource"
         },
         "issuesAsCode.syncStatePath": {
@@ -222,6 +225,20 @@
           "default": false,
           "description": "Enable experimental GitHub Projects v2 metadata sync. Requires reloading VS Code to take effect.",
           "scope": "resource"
+        },
+        "issuesAsCode.rateLimitThreshold": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Percentage of API quota remaining that triggers an automatic sync pause. When the remaining quota drops to or below this threshold, automatic syncing is paused until the quota resets. Manual actions (Sync Now, Publish) are still allowed with a confirmation prompt.",
+          "scope": "window"
+        },
+        "issuesAsCode.showStatusBarIcon": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Issues as Code status bar icon. When enabled, a cloud icon is displayed in the status bar showing sync summary and API quota information on hover.",
+          "scope": "window"
         }
       }
     }
@@ -245,6 +262,6 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile",
     "test": "node ./out/test/runTests.js",
-    "test:unit": "mocha --ui tdd out/test/fileManager.test.js out/test/configManager.test.js out/test/syncManager.test.js out/test/syncStateManager.test.js out/test/issueDecorationProvider.test.js"
+    "test:unit": "mocha --ui tdd out/test/fileManager.test.js out/test/configManager.test.js out/test/syncManager.test.js out/test/syncStateManager.test.js out/test/issueDecorationProvider.test.js out/test/publishCodeLensProvider.test.js out/test/frontmatterCompletionProvider.test.js out/test/rateLimitMonitor.test.js out/test/statusBarManager.test.js"
   }
 }
