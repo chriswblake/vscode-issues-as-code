@@ -2,7 +2,7 @@
   "name": "vscode-issues-as-code",
   "displayName": "Issues as Code",
   "description": "Synchronize GitHub issues to a local .issues/ folder",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "engines": {
     "node": "^22.0.0",
     "vscode": "^1.85.0"
