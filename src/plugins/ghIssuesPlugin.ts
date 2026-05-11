@@ -271,6 +271,7 @@ function inferTitle(
 export class GhIssuesPlugin implements PrimarySyncPlugin {
   readonly id = "gh-issues";
   readonly displayName = "GitHub Issues";
+  readonly defaultFileName = "{gh-issues.number}-{gh-issues.title}";
 
   constructor(private readonly client: GitHubClient) {}
 

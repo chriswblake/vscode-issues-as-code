@@ -18,6 +18,7 @@ import type {
 export class TickTickPlugin implements PrimarySyncPlugin {
   readonly id = "tick-tick";
   readonly displayName = "TickTick";
+  readonly defaultFileName = "{tick-tick.title}";
 
   async pull(
     _pluginConfig: Record<string, unknown>,

@@ -28,12 +28,6 @@
     "configuration": {
       "title": "Issues as Code",
       "properties": {
-        "issuesAsCode.fileNaming": {
-          "type": "string",
-          "default": "{issue-num}-{issue-title}",
-          "description": "Template for issue file names.",
-          "scope": "resource"
-        },
         "issuesAsCode.autoPush": {
           "type": "string",
           "enum": [

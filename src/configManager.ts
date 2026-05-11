@@ -34,7 +34,6 @@ export type AutoPushMode =
   | "off";
 
 export interface IssueConfig {
-  fileNaming: string;
   autoPush: AutoPushMode;
   autoPushDelay: number;
   syncTargets: SyncTarget[];
@@ -104,8 +103,6 @@ export function getConfig(
         cfg.get<Partial<ShowSyncIconsConfig>>("showSyncIcons") ?? {};
 
       return {
-        fileNaming:
-          cfg.get<string>("fileNaming") ?? "{issue-num}-{issue-title}",
         autoPush: cfg.get<AutoPushMode>("autoPush") ?? "afterDelay",
         autoPushDelay: cfg.get<number>("autoPushDelay") ?? 60000,
         syncTargets,
@@ -134,7 +131,6 @@ export function getConfig(
 
   // Default config used in tests or when vscode is unavailable
   return {
-    fileNaming: "{issue-num}-{issue-title}",
     autoPush: "afterDelay",
     autoPushDelay: 60000,
     syncTargets: [],

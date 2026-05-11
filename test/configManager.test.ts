@@ -185,7 +185,6 @@ suite("configManager – getConfig defaults", () => {
 
   test("returns expected default values for other fields", () => {
     const config = getConfig("/workspace");
-    assert.strictEqual(config.fileNaming, "{issue-num}-{issue-title}");
     assert.strictEqual(config.autoPush, "afterDelay");
     assert.strictEqual(config.autoPushDelay, 60000);
     assert.strictEqual(config.showSyncState, false);

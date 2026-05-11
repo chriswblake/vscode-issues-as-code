@@ -236,7 +236,7 @@ export class SyncManager {
     // This ensures orphaned entries are not created if the plugin returns unexpected results.
     items = this.plugin.validatePulledItems(items, pluginConfig);
 
-    const naming = this.target.naming ?? this.config.fileNaming;
+    const naming = this.target.naming ?? this.plugin.defaultFileName;
     const pulledRemoteKeys = new Set(items.map((i) => i.remoteKey));
 
     for (const item of items) {
@@ -611,7 +611,7 @@ export class SyncManager {
     );
 
     // Write updated file with server-assigned data
-    const naming = this.target.naming ?? this.config.fileNaming;
+    const naming = this.target.naming ?? this.plugin.defaultFileName;
     const expectedFileName =
       this.plugin.buildFileName(result.namingTokens, naming) + ".md";
     const expectedPath = path.join(this.target.filesDir, expectedFileName);

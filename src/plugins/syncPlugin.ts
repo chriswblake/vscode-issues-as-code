@@ -64,6 +64,9 @@ export interface PrimarySyncPlugin {
   /** Human-readable display name (e.g. 'GitHub Issues'). */
   readonly displayName: string;
 
+  /** Default file naming template when none is specified in the sync target. */
+  readonly defaultFileName: string;
+
   /**
    * Discovers and fetches remote items matching the target's plugin config.
    * Returns one PullItem per remote task/issue.

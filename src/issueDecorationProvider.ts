@@ -188,6 +188,7 @@ export class IssueDecorationProvider
         // vscode not available (unit test context)
       }
     }
+
     return {
       badge: def.badge,
       tooltip: def.tooltip,
