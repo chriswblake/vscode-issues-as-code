@@ -1,109 +1,73 @@
 # Changelog
 
-## [pending]
+## [0.2.0] - 2026-05-11
 
-### Added
+This release focuses on making syncing safer, smarter, and easier to understand at a glance.
 
-- **`issuesAsCode.keepGitIgnoreUpdated` setting**: Boolean (default: `true`). Automatically adds sync target folders to `.gitignore`. The sync state file is always gitignored regardless of this setting.
-- **Configuration reference docs**: Full settings reference moved to `docs/configuration.md`.
+### Conflict protection — your edits are safe
 
-- **"Add Sync Target" command**: A single command palette entry that dynamically loads available sync target presets from all installed plugins. Each preset is prefixed with the plugin name (e.g. "GitHub Issues: Open issues on this repository"). Replaces the three individual "Add Sync Target - ..." commands.
-- **Plugin-provided sync target presets**: Plugins now expose their own included configs via `getIncludedConfigs()` on the `PluginBootstrap` interface. Each plugin can mark one config as the default.
+When you and someone else edit the same issue at the same time, Issues as Code now handles it gracefully instead of silently overwriting either side.
 
-### Removed
+- **Push is blocked when the remote has newer changes.** If someone updated the issue on GitHub since your last sync, you'll be prompted to pull their changes first before yours can be sent.
+- **Auto-pull is paused when you have local edits.** If you've made local changes and the remote also has updates, the extension won't auto-apply them. Instead, a **⬇ Pull Changes** button appears in the editor so you can pull when you're ready.
+- **See who changed the issue and when.** The sync details line in the editor shows the last time the remote was modified and who made the change (e.g. "Remote was last modified at 2:30 PM by @user123").
+- **Stale files are cleaned up automatically.** After syncing, any local file whose issue no longer matches the sync target's filter (e.g. an issue was closed and your filter only shows open issues) is automatically removed.
 
-- **"Publish to Remote" palette command**: Manual publish trigger removed from the command palette. CodeLens inline actions ("Sync Now", "Publish") remain available in the editor.
-- **"Pull Remote Changes" palette command**: Manual pull trigger removed from the command palette. CodeLens "Pull Changes" action remains available in the editor.
-- **"Add Sync Target - Open issues on this repository" command**: Consolidated into the unified "Add Sync Target" command.
-- **"Add Sync Target - My open issues on GitHub" command**: Consolidated into the unified "Add Sync Target" command.
-- **"Add Sync Target - My open issues on this repository" command**: Consolidated into the unified "Add Sync Target" command.
+### Control when changes are sent
 
-### Changed
+You now have more control over when your local edits are pushed to GitHub.
 
-- **Status bar icon**: The status bar now shows a checklist icon (`$(checklist)`). Hover for a rich tooltip with sync summary and API quota details. Click to refresh targets.
-- **Separated rate limit monitoring from UI**: `RateLimitMonitor` now focuses purely on quota tracking and pause/resume logic. Status bar display is handled by the new `StatusBarManager`.
-- **Renamed "Refresh All" to "Refresh"**: The command now shows a multi-select picker when multiple sync targets exist, allowing you to choose which targets to refresh. Progress feedback is shown during refresh.
+- **New `issuesAsCode.autoPush` setting** with four modes:
+  - `afterDelay` — push automatically a few seconds after you stop typing (default)
+  - `onFocusChange` — push when you switch to a different file
+  - `onWindowChange` — push when VS Code loses focus
+  - `off` — never push automatically; use the **⟳ Sync Now** button in the editor
+- **Ctrl+S always pushes immediately**, regardless of the auto-push mode.
+- **Files are auto-removed after push if they no longer match the filter.** For example, if you close an issue and your sync target only tracks open issues, the file disappears from your local folder automatically.
+- **New `issuesAsCode.autoPullOnFetch` setting** — when enabled, remote changes are automatically applied to local files after fetching, as long as there are no conflicting local edits. Off by default.
 
-### Removed
+### Status bar — sync at a glance
 
-- **"Pull Now" command**: Replaced by the Refresh command which provides target selection and progress feedback.
-- **"Push Now" command**: Use the "Publish to Remote" command or auto-push instead.
-- **"Fetch Now" command**: Replaced by the Refresh command.
-- **"Show Sync Summary" command**: The sync summary is now shown as a tooltip when hovering over the status bar icon.
+A status bar icon and panel provide more information without getting in the way.
 
-### Added
+- A **checklist icon** (✓) is shown in the status bar. Click it to refresh your sync targets.
+- **Hover over the icon** to see a rich summary: how many issues are tracked per target, when each target was last fetched, when the next fetch is scheduled, and your current GitHub API usage.
+- **New `issuesAsCode.showStatusBarIcon` setting** — hide the icon if you prefer a cleaner status bar.
 
-- **`issuesAsCode.showStatusBarIcon` setting**: Boolean (default: `true`). Controls whether the Issues as Code status bar icon is visible. Window-scoped.
-- **Sync summary tooltip**: Hovering over the status bar icon shows total sync targets, tracked issue counts, last/next fetch times per target, and API quota percentages.
-- **Fetch time tracking**: Each sync target now tracks when it was last fetched and when the next fetch is scheduled.
+### GitHub API rate limit protection
 
-### Changed
+If your GitHub API quota gets low, the extension now protects you automatically.
 
-- **Renamed `pushOnSaveDelay` to `autoPushDelay`**: The setting name now mirrors VS Code's `files.autoSaveDelay` convention. Only applies when `autoPush` is `"afterDelay"`.
-- **Manual save always pushes immediately**: When the user explicitly saves (Ctrl+S / File → Save), changes are pushed to the remote immediately without waiting for the delay timer. The existing conflict protection still applies — if the remote has been updated, the push is blocked and the user is prompted to pull first.
+- The status bar tooltip shows current API usage.
+- **Auto-sync pauses** when remaining quota drops below 5% (configurable). A warning is shown, and syncing resumes automatically when the quota resets.
+- Manual actions like **Sync Now** and **Publish** still work during a pause, with a confirmation prompt.
+- **New `issuesAsCode.rateLimitThreshold` setting** — set the percentage at which auto-sync pauses (default: 5%).
 
-### Added
+### Simpler command palette
 
-- **`issuesAsCode.autoPush` setting**: Controls when local changes are automatically pushed to the remote. Options: `"afterDelay"` (default, same as previous behavior), `"onFocusChange"` (push when switching away from the file), `"onWindowChange"` (push when VS Code window loses focus), `"off"` (disable auto-push entirely). Mirrors the behavior of VS Code's built-in `files.autoSave` setting.
-- **Post-push filter validation**: After pushing changes, the file is re-checked against the target's filter criteria. If it no longer matches (e.g. the issue was closed but the target filters for `state: open`), the file and its state entry are automatically removed and the editor tab is closed.
-- **API rate limit monitoring**: A status bar item shows the current GitHub API quota (e.g. "API: 4532/5000"). Clicking it shows detailed quota info per bucket (core, search) including reset times.
-- **Automatic sync pause on low quota**: When remaining API quota drops below the configurable threshold (default 5%), automatic syncing pauses until the quota resets. A warning alert is shown. Manual actions (Sync Now, Publish) still work with a confirmation prompt.
-- **`issuesAsCode.rateLimitThreshold` setting**: Percentage of API quota remaining that triggers a sync pause (default: 5). Window-scoped.
+The command palette has been cleaned up. Most day-to-day actions are now done directly in the editor via CodeLens buttons.
 
-- **Sync details CodeLens on second line**: The "⟳ Sync Now" button and sync status info now appear on a separate line below the remote reference link, giving clearer visual separation between the URL and sync actions.
-- **Push blocked when remote has pending changes**: When the remote has been updated since the last sync, pushing local changes is blocked. An interactive warning prompts the user to pull remote changes first, preventing accidental overwrites.
-- **Pull hold-off for modified files**: During periodic pulls, if the local file has been modified and the remote also has changes, remote changes are no longer auto-applied. Instead, they are tracked as pending and surfaced via the "Pull Changes" button.
+- **"Add Sync Target"** — one command that shows all available presets from installed plugins (e.g. "GitHub Issues: Open issues on this repository").
+- **"Refresh"** — when you have multiple sync targets, a picker lets you choose which ones to refresh. A progress indicator is shown while refreshing.
+- Day-to-day actions (publish, pull, sync) are done via buttons in the editor rather than the command palette.
 
-### Added
+### Editor improvements
 
-- **"⬇ Pull Changes" CodeLens button**: When the remote has pending changes that haven't been applied locally, a "Pull Changes" button appears on the sync details line with a tooltip: "There are pending changes on the remote."
-- **Remote status info in CodeLens**: The sync details line shows when the remote was last modified (e.g., "Remote was last modified at 2:30 PM by @user123.").
-- **Command: "Issues as Code: Pull Remote Changes"** (`issuesAsCode.pullFile`) — Explicitly pulls remote changes for the current file, applying them locally (with conflict markers if both sides changed).
-- **`last_modified_by` tracking**: `RemoteIssueInfo` now supports an optional `last_modified_by` field for plugins to populate.
-- **`hasPendingRemoteChanges` helper**: `SyncStateManager` exposes a method to detect whether the remote has been updated more recently than the last local sync.
-- **`issuesAsCode.autoPullOnFetch` setting**: When enabled, automatically applies remote changes to local task files after fetching, as long as there are no local modifications that would conflict. Defaults to `false`.
+- **IntelliSense in frontmatter** — when editing the YAML header of a task file, you get auto-complete suggestions for `state` (open/closed), `labels`, and `assignees` (fetched from GitHub and cached for 5 minutes).
+- **Publish button for new files** — files you create in a sync target folder aren't pushed automatically. A **▶ Publish** CodeLens button appears so you decide when to send it to GitHub.
+- **Sync Now button on modified files** — when a file has local changes that haven't been pushed yet, a **⟳ Sync Now** button appears in the editor.
 
-## [previous]
+### Read-only sync targets
 
-### Changed
+- Add `readOnly: true` to any sync target to make its files read-only. The files are updated from the remote but your local edits are never pushed. A 🔒 icon appears in the Explorer instead of the usual sync badge.
 
-- **Plugin architecture refactor**: Sync logic is now decoupled from specific services via a plugin system. Each remote service (GitHub Issues, GitHub Projects, TickTick) is implemented as an isolated plugin under `src/plugins/`.
-- **New plugin types**: `PrimarySyncPlugin` (owns file body and creation — e.g. gh-issues) and `MetadataPlugin` (enriches frontmatter — e.g. gh-projects) replace the previous monolithic approach.
-- **SyncManager is now generic**: No longer contains GitHub-specific logic. Delegates pull/push operations to the configured plugin. Conflict markers say "Remote" instead of "GitHub".
-- **GitHubClient is repo-free**: Methods accept owner/repo as parameters, enabling cross-repository operations.
-- **configManager cleaned up**: Plugin-specific types and query builders moved into their respective plugin files. Generic `SyncTarget` interface uses an index signature for plugin configs.
-- **New file behavior**: New files created in sync target folders are no longer auto-pushed. A CodeLens "Publish" button appears instead, giving users explicit control.
-- **Cross-repo safety**: File lookup uses full `owner/repo/number` keys to prevent collisions when multiple repositories share issue numbers.
-- **Stale file cleanup**: After each pull, task files whose remote item no longer matches the target's filter are automatically deleted and their sync state entries removed. This keeps the local folder and sync state in sync with the remote.
-- **CodeLens positioning**: The issue URL and publish/sync CodeLens buttons now appear above the plugin's section in the front matter (e.g. above `gh-issues:`) rather than at the top of the file.
-- **Command renamed**: "Issues as Code: Add setting - My issues on GitHub" → "Issues as Code: Add setting - My open issues on GitHub". Now uses folder `.issues/github/me` and includes a `state: open` filter.
-- **Command renamed**: "Issues as Code: Add setting - My issues on this repository" → "Issues as Code: Add setting - My open issues on this repository". Now uses folder `.issues/open`.
+### Setup improvements
 
-### Added
-
-- **Command: "Issues as Code: Add Sync Target - Open issues on this repository"** — Adds a sync target for all open issues on the detected workspace repository. Replaces the previous "Add Open Issues Default Config" command.
-- **Auto-add default sync target**: When no sync targets are configured and a GitHub remote is detected, the extension automatically adds an open-issues sync target to workspace settings on first activation.
-- **Command: "Issues as Code: Add setting - My open issues on GitHub"** — Adds a cross-repo sync target for open issues assigned to the authenticated user across GitHub.
-- **Command: "Issues as Code: Add setting - My open issues on this repository"** — Adds a sync target for the authenticated user's open issues on the detected workspace repository.
-- **Command: "Issues as Code: Publish to Remote"** — Explicitly publishes a local file to the configured remote service.
-- **CodeLens provider**: Shows a "▶ Publish to [service]" button on unpublished markdown files inside sync target folders.
-- **"⟳ Sync Now" CodeLens**: When a published file has been modified (saved but not yet pushed), a "⟳ Sync Now" button appears next to the remote reference link to trigger an immediate push.
-- **`readOnly` sync target option**: Set `readOnly: true` on a sync target to make files read-only. Files are updated from remote but local changes are never pushed. Local edits are automatically overwritten on the next pull. Files are made read-only on disk (chmod 444) to discourage accidental edits. A 🔏 icon is shown in the Explorer instead of the usual sync status badge. Supported on Linux, macOS, and Windows.
-- **Frontmatter completion provider**: Provides IntelliSense completions inside the YAML front matter of task files. Supports `state` (open/closed), `labels` (fetched from GitHub), and `assignees` (fetched from GitHub contributors). Results are cached per repository for 5 minutes.
-- **Plugin files**: `src/plugins/ghIssuesPlugin.ts`, `src/plugins/ghProjectsPlugin.ts`, `src/plugins/tickTickPlugin.ts`, `src/plugins/syncPlugin.ts`.
-
-### Removed
-
-- `src/projectsSync.ts` — Replaced by `src/plugins/ghProjectsPlugin.ts`.
-- `issueMatchesFilter` removed from `fileManager.ts` — Now lives in the gh-issues plugin as `matchesFilter`.
-- `inferNewIssueTitle` removed from `syncManager.ts` — Now handled by `GhIssuesPlugin.inferTitle`.
-- Dead `limit` config option removed from package.json schema.
+- **Auto-setup on first install** — if a GitHub remote is detected and no sync targets are configured, a default "open issues on this repository" target is added automatically.
+- **Sync target folders are gitignored automatically** — new `issuesAsCode.keepGitIgnoreUpdated` setting (default: `true`). The sync state file is always gitignored regardless of this setting.
+- **Settings reference** — full documentation for all settings is now at `docs/configuration.md`.
 
 ## [0.1.0] - 2026-04-22
-
-## [0.1.0] - 2026-04-22
-
-### Added
 
 - Initial release of Issues as Code
 - Sync GitHub issues to local `.issues/` folder
