@@ -42,7 +42,7 @@ const DECORATIONS: Record<
     colorId: "gitDecoration.modifiedResourceForeground",
   },
   readOnly: {
-    badge: "🔏",
+    badge: "🔒",
     tooltip: "Read-Only: Managed by remote; local changes are not pushed",
   },
 };
