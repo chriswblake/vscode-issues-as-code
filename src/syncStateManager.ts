@@ -237,6 +237,17 @@ export class SyncStateManager {
     this.notifyChange(filePath);
   }
 
+  /** Updates only local_written_at without changing sync timestamps. */
+  async setLocalWrittenAt(filePath: string): Promise<void> {
+    const existing = this.state.files[filePath];
+    if (!existing) {
+      return;
+    }
+    existing.local_written_at = new Date().toISOString();
+    await this.save();
+    this.notifyChange(filePath);
+  }
+
   /** Removes the state entry for a single file path, then persists. */
   async deleteEntry(filePath: string): Promise<void> {
     delete this.state.files[filePath];

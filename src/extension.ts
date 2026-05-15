@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
 import * as path from "path";
 import {
   getConfig,
@@ -10,6 +11,7 @@ import {
   SyncManager,
   reconcileTargetChanges,
   switchEditorToRenamedFile,
+  hasConflictMarkers,
   type RefreshResult,
   type PushEventInfo,
 } from "./syncManager";
@@ -69,9 +71,8 @@ function getAutoPushMode(filePath: string): AutoPushMode | undefined {
 }
 
 /**
- * After a successful push, propagates the file content to sibling copies
- * of the same issue in other sync targets. This allows local edits to
- * appear in all matching targets without waiting for a remote round-trip.
+ * After a successful push, propagates the server-normalized content to sibling
+ * copies of the same issue in other sync targets, including updated sync state.
  */
 async function propagateToSiblings(
   info: PushEventInfo,
@@ -85,7 +86,6 @@ async function propagateToSiblings(
     return;
   }
 
-  // Read the pushed file's current content
   let frontmatter: IssueFrontmatter;
   let body: string;
   try {
@@ -96,7 +96,6 @@ async function propagateToSiblings(
     return;
   }
 
-  // Get the remote info from the state entry
   const pluginData = sourceManager.stateManager.getPluginData(
     info.filePath,
     info.pluginId,
@@ -128,6 +127,65 @@ async function propagateToSiblings(
     } catch (err) {
       console.error(
         `[issuesAsCode] sibling propagation failed for "${siblingPath}":`,
+        err,
+      );
+    }
+  }
+}
+
+/**
+ * Propagates local file edits to sibling copies in other sync targets.
+ * Works without internet — copies raw file content and updates local_written_at
+ * so the siblings aren't flagged as locally modified or conflict.
+ */
+async function propagateLocalEditsToSiblings(
+  filePath: string,
+  sourceManager: SyncManager,
+): Promise<void> {
+  const remoteKey = sourceManager.stateManager.getRemoteKey(
+    filePath,
+    sourceManager.plugin.id,
+  );
+  if (!remoteKey) {
+    return;
+  }
+
+  const siblingPaths = sourceManager.stateManager.findAllFilesByPluginKey(
+    sourceManager.plugin.id,
+    remoteKey,
+  );
+  if (siblingPaths.length <= 1) {
+    return;
+  }
+
+  // Read the saved file's raw content
+  let content: string;
+  try {
+    content = await fs.promises.readFile(filePath, "utf8");
+  } catch {
+    return;
+  }
+
+  // Skip propagation if the file has unresolved conflict markers
+  if (hasConflictMarkers(content)) {
+    return;
+  }
+
+  for (const siblingPath of siblingPaths) {
+    if (siblingPath === filePath) {
+      continue;
+    }
+
+    const siblingManager = syncManagers.find((m) => m.ownsFile(siblingPath));
+    if (!siblingManager) {
+      continue;
+    }
+
+    try {
+      await siblingManager.propagateLocalEdit(siblingPath, content);
+    } catch (err) {
+      console.error(
+        `[issuesAsCode] local sibling propagation failed for "${siblingPath}":`,
         err,
       );
     }
@@ -225,18 +283,24 @@ function registerProviders(context: vscode.ExtensionContext): void {
   );
 
   // Manual save → push immediately (regardless of autoPush setting)
+  // All saves → propagate local edits to sibling copies in other targets
   context.subscriptions.push(
     vscode.workspace.onDidSaveTextDocument((document) => {
       const filePath = document.uri.fsPath;
       const reason = lastSaveReason.get(filePath);
       lastSaveReason.delete(filePath);
 
-      if (reason === vscode.TextDocumentSaveReason.Manual) {
-        const manager = syncManagers.find((m) => m.ownsFile(filePath));
-        if (manager) {
-          void manager.pushNowIfPublished(filePath);
-        }
+      const manager = syncManagers.find((m) => m.ownsFile(filePath));
+      if (!manager) {
+        return;
       }
+
+      if (reason === vscode.TextDocumentSaveReason.Manual) {
+        void manager.pushNowIfPublished(filePath);
+      }
+
+      // Propagate to sibling copies (works offline, no push required)
+      void propagateLocalEditsToSiblings(filePath, manager);
     }),
   );
 

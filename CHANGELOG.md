@@ -5,7 +5,7 @@
 ### Bug Fixes
 
 - **Issues matching multiple sync targets now appear in all matching folders.** Previously, if an issue matched more than one sync target, it would only show in the last one processed. Each target now independently tracks its own copy.
-- **Local edits propagate to sibling copies after a successful push.** When the same issue exists in multiple sync targets and you edit one copy, the change is immediately reflected in the other copies without waiting for a remote round-trip.
+- **Local edits propagate to sibling copies on save.** When the same issue exists in multiple sync targets and you edit one copy, saving it immediately updates the other copies locally — no internet required.
 
 ## [0.2.0] - 2026-05-11
 

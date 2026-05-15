@@ -956,6 +956,32 @@ export class SyncManager {
     );
   }
 
+  /**
+   * Propagates raw content from a local sibling edit.
+   * Writes the file while suppressing watcher events and updating local_written_at
+   * but does NOT change sync timestamps (no remote info available).
+   */
+  async propagateLocalEdit(
+    filePath: string, //
+    content: string,
+  ): Promise<void> {
+    this.suppress(filePath, 1);
+    try {
+      if (this.target.readOnly) {
+        await makeFileWritable(filePath);
+      }
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, content, "utf8");
+      await this.markExtensionWrite(filePath);
+      await this.stateManager.setLocalWrittenAt(filePath);
+      if (this.target.readOnly) {
+        await makeFileReadOnly(filePath);
+      }
+    } finally {
+      this.suppress(filePath, -1);
+    }
+  }
+
   /** Deletes a file while suppressing watcher events and removes its state entry. */
   private async unlinkSuppressed(filePath: string): Promise<void> {
     this.suppress(filePath, 1);

@@ -1126,3 +1126,48 @@ suite("syncStateManager – findAllFilesByPluginKey", () => {
     assert.deepStrictEqual(results, []);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Section: setLocalWrittenAt
+// ---------------------------------------------------------------------------
+
+suite("syncStateManager – setLocalWrittenAt", () => {
+  test("setLocalWrittenAt: updates local_written_at without changing synced_at", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+
+    const filePath = "/workspace/.issues/target-a/7-fix-bug.md";
+    const remote = makeRemoteInfo({
+      number: 7,
+      updated_at: "2024-01-15T10:00:00Z",
+    });
+    await mgr.setSyncedAt(filePath, remote, "gh-issues", "owner/repo/7");
+    const syncedAtBefore = mgr.getSyncedAt(filePath, "gh-issues");
+
+    // Act
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await mgr.setLocalWrittenAt(filePath);
+
+    // Assert
+    const syncedAtAfter = mgr.getSyncedAt(filePath, "gh-issues");
+    assert.strictEqual(syncedAtAfter, syncedAtBefore);
+
+    const localWrittenAt = mgr.getLocalWrittenAt(filePath);
+    assert.ok(localWrittenAt);
+    assert.ok(new Date(localWrittenAt) > new Date("2024-01-15T10:00:00Z"));
+  });
+
+  test("setLocalWrittenAt: no-op for unknown file path", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+
+    // Act & Assert — should not throw
+    await mgr.setLocalWrittenAt("/nonexistent.md");
+
+    assert.strictEqual(mgr.getLocalWrittenAt("/nonexistent.md"), undefined);
+  });
+});
