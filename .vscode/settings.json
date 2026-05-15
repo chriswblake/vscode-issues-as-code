@@ -1,4 +1,7 @@
 {
   "prettier.singleQuote": true,
-  "prettier.printWidth": 500
+  "prettier.printWidth": 500,
+  "chat.tools.terminal.autoApprove": {
+    "npx prettier": true
+  }
 }
