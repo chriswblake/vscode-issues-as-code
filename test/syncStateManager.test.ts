@@ -973,3 +973,156 @@ suite("syncStateManager – hasPendingRemoteChanges", () => {
     assert.strictEqual(result, false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Section: findFileByPluginKeyUnderLocation
+// ---------------------------------------------------------------------------
+
+suite("syncStateManager – findFileByPluginKeyUnderLocation", () => {
+  test("findFileByPluginKeyUnderLocation: returns file under matching location", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+
+    const filePath = "/workspace/.issues/target-a/7-fix-bug.md";
+    const remote = makeRemoteInfo({ number: 7 });
+    await mgr.setSyncedAt(filePath, remote, "gh-issues", "owner/repo/7");
+
+    // Act
+    const result = mgr.findFileByPluginKeyUnderLocation(
+      "gh-issues",
+      "owner/repo/7",
+      "/workspace/.issues/target-a",
+    );
+
+    // Assert
+    assert.strictEqual(result, filePath);
+  });
+
+  test("findFileByPluginKeyUnderLocation: returns undefined when file is in different location", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+
+    const filePath = "/workspace/.issues/target-a/7-fix-bug.md";
+    const remote = makeRemoteInfo({ number: 7 });
+    await mgr.setSyncedAt(filePath, remote, "gh-issues", "owner/repo/7");
+
+    // Act
+    const result = mgr.findFileByPluginKeyUnderLocation(
+      "gh-issues",
+      "owner/repo/7",
+      "/workspace/.issues/target-b",
+    );
+
+    // Assert
+    assert.strictEqual(result, undefined);
+  });
+
+  test("findFileByPluginKeyUnderLocation: finds correct file among multiple targets", async () => {
+    // Same issue tracked in two different target directories.
+
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+
+    const fileA = "/workspace/.issues/target-a/7-fix-bug.md";
+    const fileB = "/workspace/.issues/target-b/7-fix-bug.md";
+    const remote = makeRemoteInfo({ number: 7 });
+    await mgr.setSyncedAt(fileA, remote, "gh-issues", "owner/repo/7");
+    await mgr.setSyncedAt(fileB, remote, "gh-issues", "owner/repo/7");
+
+    // Act
+    const resultA = mgr.findFileByPluginKeyUnderLocation(
+      "gh-issues",
+      "owner/repo/7",
+      "/workspace/.issues/target-a",
+    );
+    const resultB = mgr.findFileByPluginKeyUnderLocation(
+      "gh-issues",
+      "owner/repo/7",
+      "/workspace/.issues/target-b",
+    );
+
+    // Assert
+    assert.strictEqual(resultA, fileA);
+    assert.strictEqual(resultB, fileB);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section: findAllFilesByPluginKey
+// ---------------------------------------------------------------------------
+
+suite("syncStateManager – findAllFilesByPluginKey", () => {
+  test("findAllFilesByPluginKey: returns all files with matching key", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+
+    const fileA = "/workspace/.issues/target-a/7-fix-bug.md";
+    const fileB = "/workspace/.issues/target-b/7-fix-bug.md";
+    const remote = makeRemoteInfo({ number: 7 });
+    await mgr.setSyncedAt(fileA, remote, "gh-issues", "owner/repo/7");
+    await mgr.setSyncedAt(fileB, remote, "gh-issues", "owner/repo/7");
+
+    // Act
+    const results = mgr.findAllFilesByPluginKey("gh-issues", "owner/repo/7");
+
+    // Assert
+    assert.strictEqual(results.length, 2);
+    assert.ok(results.includes(fileA));
+    assert.ok(results.includes(fileB));
+  });
+
+  test("findAllFilesByPluginKey: returns single file when only one matches", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+
+    const fileA = "/workspace/.issues/target-a/7-fix-bug.md";
+    const remote = makeRemoteInfo({ number: 7 });
+    await mgr.setSyncedAt(fileA, remote, "gh-issues", "owner/repo/7");
+
+    // Act
+    const results = mgr.findAllFilesByPluginKey("gh-issues", "owner/repo/7");
+
+    // Assert
+    assert.deepStrictEqual(results, [fileA]);
+  });
+
+  test("findAllFilesByPluginKey: returns empty when no files match", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+
+    // Act
+    const results = mgr.findAllFilesByPluginKey("gh-issues", "owner/repo/999");
+
+    // Assert
+    assert.deepStrictEqual(results, []);
+  });
+
+  test("findAllFilesByPluginKey: does not return files with different plugin id", async () => {
+    // Arrange
+    const statePath = makeTempPath();
+    const mgr = new SyncStateManager(statePath);
+    await mgr.load();
+
+    const fileA = "/workspace/.issues/target-a/7-fix-bug.md";
+    const remote = makeRemoteInfo({ number: 7 });
+    await mgr.setSyncedAt(fileA, remote, "gh-issues", "owner/repo/7");
+
+    // Act
+    const results = mgr.findAllFilesByPluginKey("gh-projects", "owner/repo/7");
+
+    // Assert
+    assert.deepStrictEqual(results, []);
+  });
+});

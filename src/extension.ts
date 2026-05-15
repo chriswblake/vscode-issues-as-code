@@ -11,8 +11,16 @@ import {
   reconcileTargetChanges,
   switchEditorToRenamedFile,
   type RefreshResult,
+  type PushEventInfo,
 } from "./syncManager";
-import { SyncStateManager } from "./syncStateManager";
+import {
+  SyncStateManager, //
+  type RemoteIssueInfo,
+} from "./syncStateManager";
+import {
+  readIssueFile, //
+  type IssueFrontmatter,
+} from "./fileManager";
 import { IssueDecorationProvider } from "./issueDecorationProvider";
 import { PublishCodeLensProvider } from "./publishCodeLensProvider";
 import { FrontmatterCompletionProvider } from "./frontmatterCompletionProvider";
@@ -44,6 +52,7 @@ let completionProvider: FrontmatterCompletionProvider | undefined;
 let rateLimitMonitor: RateLimitMonitor | undefined;
 let statusBarManager: StatusBarManager | undefined;
 const syncChangeUnsubscribers: (() => void)[] = [];
+const pushChangeUnsubscribers: (() => void)[] = [];
 
 // Serializes reinitializations so rapid config-change events don't overlap.
 // Each call is chained after the previous one; all callers await the same chain tail.
@@ -57,6 +66,72 @@ let configChangeDebounceTimer: NodeJS.Timeout | null = null;
 function getAutoPushMode(filePath: string): AutoPushMode | undefined {
   const manager = syncManagers.find((m) => m.ownsFile(filePath));
   return manager?.config.autoPush;
+}
+
+/**
+ * After a successful push, propagates the file content to sibling copies
+ * of the same issue in other sync targets. This allows local edits to
+ * appear in all matching targets without waiting for a remote round-trip.
+ */
+async function propagateToSiblings(
+  info: PushEventInfo,
+  sourceManager: SyncManager,
+): Promise<void> {
+  const siblingPaths = sourceManager.stateManager.findAllFilesByPluginKey(
+    info.pluginId,
+    info.remoteKey,
+  );
+  if (siblingPaths.length <= 1) {
+    return;
+  }
+
+  // Read the pushed file's current content
+  let frontmatter: IssueFrontmatter;
+  let body: string;
+  try {
+    const parsed = await readIssueFile(info.filePath);
+    frontmatter = parsed.frontmatter;
+    body = parsed.body;
+  } catch {
+    return;
+  }
+
+  // Get the remote info from the state entry
+  const pluginData = sourceManager.stateManager.getPluginData(
+    info.filePath,
+    info.pluginId,
+  );
+  if (!pluginData) {
+    return;
+  }
+
+  const remoteInfo = pluginData as unknown as RemoteIssueInfo;
+
+  for (const siblingPath of siblingPaths) {
+    if (siblingPath === info.filePath) {
+      continue;
+    }
+
+    const siblingManager = syncManagers.find((m) => m.ownsFile(siblingPath));
+    if (!siblingManager) {
+      continue;
+    }
+
+    try {
+      await siblingManager.propagateFromSibling(
+        siblingPath,
+        frontmatter,
+        body,
+        remoteInfo,
+        info.remoteKey,
+      );
+    } catch (err) {
+      console.error(
+        `[issuesAsCode] sibling propagation failed for "${siblingPath}":`,
+        err,
+      );
+    }
+  }
 }
 
 export async function activate(
@@ -536,6 +611,12 @@ async function doReinitializeAllFolders(
   }
   syncChangeUnsubscribers.length = 0;
 
+  // Clear old push change listeners
+  for (const unsub of pushChangeUnsubscribers) {
+    unsub();
+  }
+  pushChangeUnsubscribers.length = 0;
+
   const folders = vscode.workspace.workspaceFolders ?? [];
   for (const folder of folders) {
     // Reconcile moved/removed targets before starting new managers
@@ -681,6 +762,12 @@ async function activateFolder(
       refreshStatusBarSummary();
     });
     syncChangeUnsubscribers.push(unsubscribeSyncChange);
+
+    // Subscribe to push events for cross-target sibling propagation
+    const unsubscribePush = manager.onDidPush((info) => {
+      void propagateToSiblings(info, manager);
+    });
+    pushChangeUnsubscribers.push(unsubscribePush);
   }
 
   // Update decoration provider with all active managed locations and config

@@ -283,6 +283,37 @@ export class SyncStateManager {
     return undefined;
   }
 
+  /** Finds the file path for a given plugin key, scoped to a specific directory. */
+  findFileByPluginKeyUnderLocation(
+    pluginId: string, //
+    key: string,
+    location: string,
+  ): string | undefined {
+    const prefix = location + path.sep;
+    for (const [filePath, entry] of Object.entries(this.state.files)) {
+      if (!filePath.startsWith(prefix)) {
+        continue;
+      }
+      const ref = entry.plugins?.[pluginId];
+      if (ref?.key === key) {
+        return filePath;
+      }
+    }
+    return undefined;
+  }
+
+  /** Finds all file paths for a given plugin key across all locations. */
+  findAllFilesByPluginKey(pluginId: string, key: string): string[] {
+    const results: string[] = [];
+    for (const [filePath, entry] of Object.entries(this.state.files)) {
+      const ref = entry.plugins?.[pluginId];
+      if (ref?.key === key) {
+        results.push(filePath);
+      }
+    }
+    return results;
+  }
+
   private async save(): Promise<void> {
     await fs.promises.mkdir(path.dirname(this.statePath), { recursive: true });
     await fs.promises.writeFile(

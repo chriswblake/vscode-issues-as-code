@@ -1,5 +1,12 @@
 # Changelog
 
+## Pending
+
+### Bug Fixes
+
+- **Issues matching multiple sync targets now appear in all matching folders.** Previously, if an issue matched more than one sync target, it would only show in the last one processed. Each target now independently tracks its own copy.
+- **Local edits propagate to sibling copies after a successful push.** When the same issue exists in multiple sync targets and you edit one copy, the change is immediately reflected in the other copies without waiting for a remote round-trip.
+
 ## [0.2.0] - 2026-05-11
 
 This release focuses on making syncing safer, smarter, and easier to understand at a glance.

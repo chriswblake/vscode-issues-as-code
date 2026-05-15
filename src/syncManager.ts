@@ -18,6 +18,13 @@ export type RefreshResult =
   | { status: "skipped"; name: string }
   | { status: "error"; name: string; error: string };
 
+/** Info emitted after a successful push. */
+export interface PushEventInfo {
+  filePath: string;
+  remoteKey: string;
+  pluginId: string;
+}
+
 // Lazy vscode import so unit tests can stub it out
 function vscode(): typeof vscodeType {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -61,6 +68,7 @@ export class SyncManager {
   private _lastFetchTime: Date | null = null;
   private _nextFetchTime: Date | null = null;
   private syncChangeListeners: (() => void)[] = [];
+  private pushListeners: ((info: PushEventInfo) => void)[] = [];
 
   constructor(
     readonly plugin: PrimarySyncPlugin,
@@ -103,6 +111,14 @@ export class SyncManager {
       this.syncChangeListeners = this.syncChangeListeners.filter(
         (l) => l !== listener,
       );
+    };
+  }
+
+  /** Register a listener for successful push events. Returns an unsubscribe function. */
+  onDidPush(listener: (info: PushEventInfo) => void): () => void {
+    this.pushListeners.push(listener);
+    return () => {
+      this.pushListeners = this.pushListeners.filter((l) => l !== listener);
     };
   }
 
@@ -161,12 +177,23 @@ export class SyncManager {
     this.debounceTimers.clear();
     this.extensionWriteMtimeMs.clear();
     this.syncChangeListeners = [];
+    this.pushListeners = [];
   }
 
   private notifySyncChange(): void {
     for (const listener of this.syncChangeListeners) {
       try {
         listener();
+      } catch {
+        // Ignore listener errors
+      }
+    }
+  }
+
+  private notifyPush(info: PushEventInfo): void {
+    for (const listener of this.pushListeners) {
+      try {
+        listener(info);
       } catch {
         // Ignore listener errors
       }
@@ -307,10 +334,14 @@ export class SyncManager {
     }
   }
 
-  /** Finds an existing file by its remoteKey in the sync state (unique across repos). */
+  /** Finds an existing file by its remoteKey in the sync state, scoped to this target's directory. */
   private findExistingFileByKey(remoteKey: string): string | null {
     return (
-      this.stateManager.findFileByPluginKey(this.plugin.id, remoteKey) ?? null
+      this.stateManager.findFileByPluginKeyUnderLocation(
+        this.plugin.id, //
+        remoteKey,
+        this.target.filesDir,
+      ) ?? null
     );
   }
 
@@ -641,6 +672,13 @@ export class SyncManager {
       return undefined;
     }
 
+    // Notify listeners so sibling copies in other targets can be updated
+    this.notifyPush({
+      filePath: expectedPath,
+      remoteKey: result.remoteKey,
+      pluginId: this.plugin.id,
+    });
+
     return expectedPath !== filePath ? expectedPath : undefined;
   }
 
@@ -896,6 +934,26 @@ export class SyncManager {
     } finally {
       this.suppress(filePath, -1);
     }
+  }
+
+  /**
+   * Propagates content from a sibling copy (same remote issue in another target).
+   * Writes the file while suppressing watcher events and updating sync state.
+   */
+  async propagateFromSibling(
+    filePath: string, //
+    frontmatter: IssueFrontmatter,
+    body: string,
+    remoteInfo: RemoteIssueInfo,
+    remoteKey: string,
+  ): Promise<void> {
+    await this.writeFileSuppressed(
+      filePath, //
+      frontmatter,
+      body,
+      remoteInfo,
+      remoteKey,
+    );
   }
 
   /** Deletes a file while suppressing watcher events and removes its state entry. */
