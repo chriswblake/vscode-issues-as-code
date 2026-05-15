@@ -1195,11 +1195,15 @@ export async function reconcileTargetChanges(
   const oldByIdentity = new Map(oldTargets.map((t) => [targetIdentity(t), t]));
   const newByIdentity = new Map(newTargets.map((t) => [targetIdentity(t), t]));
 
+  // Collect filesDir paths for targets that remain active after reconciliation
+  const activeFilesDirs = newTargets.map((t) => path.resolve(t.filesDir));
+
   // Move files for targets whose filesDir changed
   for (const [id, oldTarget] of oldByIdentity) {
     const newTarget = newByIdentity.get(id);
     if (newTarget && newTarget.filesDir !== oldTarget.filesDir) {
       await moveTargetFiles(oldTarget, newTarget, stateManager);
+      await removeEmptyParentDirs(oldTarget.filesDir, activeFilesDirs);
     }
   }
 
@@ -1207,6 +1211,7 @@ export async function reconcileTargetChanges(
   for (const [id, oldTarget] of oldByIdentity) {
     if (!newByIdentity.has(id)) {
       await deleteTargetFiles(oldTarget, stateManager);
+      await removeEmptyParentDirs(oldTarget.filesDir, activeFilesDirs);
     }
   }
 }
@@ -1268,6 +1273,40 @@ async function deleteTargetFiles(
   }
 
   await stateManager.removeFilesUnderLocation(oldTarget.filesDir);
+}
+
+/**
+ * Removes the given directory and any empty parent directories, stopping when a parent
+ * is an ancestor of any active sync target path. This prevents removing directories
+ * that are still in use by other targets.
+ */
+export async function removeEmptyParentDirs(
+  dirPath: string, //
+  activeFilesDirs: string[] = [],
+): Promise<void> {
+  let current = path.resolve(dirPath);
+  const resolvedActive = activeFilesDirs.map((d) => path.resolve(d));
+
+  while (current !== path.dirname(current)) {
+    // Stop if this directory is an ancestor of (or equal to) any active target
+    if (isAncestorOfAny(current, resolvedActive)) {
+      break;
+    }
+
+    try {
+      await fs.promises.rmdir(current);
+    } catch {
+      // Directory not empty or already gone — stop climbing
+      break;
+    }
+
+    current = path.dirname(current);
+  }
+}
+
+/** Returns true if `dir` is an ancestor of, or equal to, any path in `paths`. */
+function isAncestorOfAny(dir: string, paths: string[]): boolean {
+  return paths.some((p) => p === dir || p.startsWith(dir + path.sep));
 }
 
 // ---------------------------------------------------------------------------

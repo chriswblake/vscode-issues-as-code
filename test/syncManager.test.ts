@@ -9,6 +9,7 @@ import {
   generateConflictContent,
   hasConflictMarkers,
   reconcileTargetChanges,
+  removeEmptyParentDirs,
 } from "../src/syncManager";
 import { GhIssuesPlugin } from "../src/plugins/ghIssuesPlugin";
 import {
@@ -858,5 +859,260 @@ suite("syncManager – reconcileTargetChanges (delete)", () => {
     // Assert – removed target deleted
     assert.ok(!fs.existsSync(removedFile), "removed file should be deleted");
     assert.strictEqual(stateManager.getSyncedAt(removedFile), undefined);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Section 8: removeEmptyParentDirs
+// ---------------------------------------------------------------------------
+
+suite("syncManager – removeEmptyParentDirs", () => {
+  test("removeEmptyParentDirs: removes empty directory and its empty parents", async () => {
+    // Arrange
+    const root = makeTempDir();
+    const nested = path.join(root, "a", "b", "c");
+    fs.mkdirSync(nested, { recursive: true });
+
+    // Act
+    await removeEmptyParentDirs(nested);
+
+    // Assert – all empty parents removed
+    assert.ok(
+      !fs.existsSync(path.join(root, "a", "b", "c")),
+      "c should be removed",
+    );
+    assert.ok(!fs.existsSync(path.join(root, "a", "b")), "b should be removed");
+    assert.ok(!fs.existsSync(path.join(root, "a")), "a should be removed");
+  });
+
+  test("removeEmptyParentDirs: stops at non-empty parent", async () => {
+    // Arrange
+    const root = makeTempDir();
+    const nested = path.join(root, "a", "b");
+    fs.mkdirSync(nested, { recursive: true });
+    fs.writeFileSync(path.join(root, "a", "keep.txt"), "keep", "utf8");
+
+    // Act
+    await removeEmptyParentDirs(nested);
+
+    // Assert – only the empty leaf is removed
+    assert.ok(!fs.existsSync(nested), "b should be removed");
+    assert.ok(
+      fs.existsSync(path.join(root, "a")),
+      "a should remain (has keep.txt)",
+    );
+  });
+
+  test("removeEmptyParentDirs: stops at ancestor of an active target", async () => {
+    // Arrange
+    const root = makeTempDir();
+    const oldDir = path.join(root, "issues", "frontend", "old");
+    const activeDir = path.join(root, "issues", "backend", "open");
+    fs.mkdirSync(oldDir, { recursive: true });
+    fs.mkdirSync(activeDir, { recursive: true });
+
+    // Act – "issues" is an ancestor of the active target, so stop there
+    await removeEmptyParentDirs(oldDir, [activeDir]);
+
+    // Assert
+    assert.ok(!fs.existsSync(oldDir), "old should be removed");
+    assert.ok(
+      !fs.existsSync(path.join(root, "issues", "frontend")),
+      "frontend should be removed",
+    );
+    assert.ok(
+      fs.existsSync(path.join(root, "issues")),
+      "issues should remain (ancestor of active target)",
+    );
+  });
+
+  test("removeEmptyParentDirs: no-op when directory does not exist", async () => {
+    // Arrange
+    const root = makeTempDir();
+    const nonExistent = path.join(root, "does", "not", "exist");
+
+    // Act – should not throw
+    await assert.doesNotReject(removeEmptyParentDirs(nonExistent));
+  });
+
+  test("removeEmptyParentDirs: no-op when directory is non-empty", async () => {
+    // Arrange
+    const root = makeTempDir();
+    const nested = path.join(root, "a");
+    fs.mkdirSync(nested, { recursive: true });
+    fs.writeFileSync(path.join(nested, "file.txt"), "data", "utf8");
+
+    // Act
+    await removeEmptyParentDirs(nested);
+
+    // Assert – directory kept because it's not empty
+    assert.ok(fs.existsSync(nested), "non-empty directory should remain");
+  });
+
+  test("removeEmptyParentDirs: does not remove directory equal to an active target", async () => {
+    // Arrange
+    const root = makeTempDir();
+    const sharedDir = path.join(root, "issues");
+    const subDir = path.join(sharedDir, "old");
+    fs.mkdirSync(subDir, { recursive: true });
+
+    // Act – sharedDir itself is an active target
+    await removeEmptyParentDirs(subDir, [sharedDir]);
+
+    // Assert
+    assert.ok(!fs.existsSync(subDir), "old should be removed");
+    assert.ok(
+      fs.existsSync(sharedDir),
+      "issues should remain (is an active target)",
+    );
+  });
+});
+
+suite("syncManager – reconcileTargetChanges removes empty parent dirs", () => {
+  test("move: removes empty parent directories after moving files", async () => {
+    // Arrange
+    const root = makeTempDir();
+    const oldLocation = path.join(root, "issues", "deep", "old");
+    const newLocation = path.join(root, "new");
+    fs.mkdirSync(oldLocation, { recursive: true });
+
+    const statePath = path.join(root, "sync-state.yml");
+    const stateManager = new SyncStateManager(statePath);
+    await stateManager.load();
+
+    const filePath = path.join(oldLocation, "1-issue.md");
+    fs.writeFileSync(filePath, "content", "utf8");
+    await stateManager.setSyncedAt(
+      filePath, //
+      makeRemoteInfo({ number: 1 }),
+      "gh-issues",
+      "owner/repo/1",
+    );
+
+    const oldTargets = [
+      {
+        filesDir: oldLocation,
+        "gh-issues": { filters: { repository: "owner/repo", state: "open" } },
+      },
+    ];
+    const newTargets = [
+      {
+        filesDir: newLocation,
+        "gh-issues": { filters: { repository: "owner/repo", state: "open" } },
+      },
+    ];
+
+    // Act
+    await reconcileTargetChanges(oldTargets, newTargets, stateManager);
+
+    // Assert – empty parent directories are cleaned up
+    assert.ok(
+      !fs.existsSync(path.join(root, "issues")),
+      "empty parents should be removed",
+    );
+  });
+
+  test("move: preserves shared parent when another target uses it", async () => {
+    // Arrange
+    const root = makeTempDir();
+    const oldLocation = path.join(root, "issues", "frontend", "old");
+    const keptLocation = path.join(root, "issues", "backend", "open");
+    const newLocation = path.join(root, "issues", "frontend", "new");
+    fs.mkdirSync(oldLocation, { recursive: true });
+    fs.mkdirSync(keptLocation, { recursive: true });
+
+    const statePath = path.join(root, "sync-state.yml");
+    const stateManager = new SyncStateManager(statePath);
+    await stateManager.load();
+
+    const filePath = path.join(oldLocation, "1-issue.md");
+    fs.writeFileSync(filePath, "content", "utf8");
+    await stateManager.setSyncedAt(
+      filePath, //
+      makeRemoteInfo({ number: 1 }),
+      "gh-issues",
+      "owner/repo/1",
+    );
+
+    const keptFile = path.join(keptLocation, "2-issue.md");
+    fs.writeFileSync(keptFile, "content", "utf8");
+    await stateManager.setSyncedAt(
+      keptFile, //
+      makeRemoteInfo({ number: 2 }),
+      "gh-issues",
+      "owner/repo/2",
+    );
+
+    const oldTargets = [
+      {
+        filesDir: oldLocation,
+        "gh-issues": { filters: { repository: "owner/repo", state: "open" } },
+      },
+      {
+        filesDir: keptLocation,
+        "gh-issues": { filters: { repository: "owner/repo", state: "closed" } },
+      },
+    ];
+    const newTargets = [
+      {
+        filesDir: newLocation,
+        "gh-issues": { filters: { repository: "owner/repo", state: "open" } },
+      },
+      {
+        filesDir: keptLocation,
+        "gh-issues": { filters: { repository: "owner/repo", state: "closed" } },
+      },
+    ];
+
+    // Act
+    await reconcileTargetChanges(oldTargets, newTargets, stateManager);
+
+    // Assert – "old" removed, "frontend" removed (empty), "issues" kept (ancestor of kept target)
+    assert.ok(!fs.existsSync(oldLocation), "old location should be removed");
+    assert.ok(
+      fs.existsSync(path.join(root, "issues")),
+      "issues should remain (ancestor of active target)",
+    );
+    assert.ok(
+      fs.existsSync(keptLocation),
+      "kept target location should remain",
+    );
+  });
+
+  test("delete: removes empty parent directories after deleting files", async () => {
+    // Arrange
+    const root = makeTempDir();
+    const location = path.join(root, "issues", "deep", "nested");
+    fs.mkdirSync(location, { recursive: true });
+
+    const statePath = path.join(root, "sync-state.yml");
+    const stateManager = new SyncStateManager(statePath);
+    await stateManager.load();
+
+    const filePath = path.join(location, "1-issue.md");
+    fs.writeFileSync(filePath, "content", "utf8");
+    await stateManager.setSyncedAt(
+      filePath, //
+      makeRemoteInfo({ number: 1 }),
+      "gh-issues",
+      "owner/repo/1",
+    );
+
+    const oldTargets = [
+      {
+        filesDir: location,
+        "gh-issues": { filters: { repository: "owner/repo", state: "open" } },
+      },
+    ];
+    const newTargets: typeof oldTargets = [];
+
+    // Act
+    await reconcileTargetChanges(oldTargets, newTargets, stateManager);
+
+    // Assert – empty parent directories are cleaned up
+    assert.ok(
+      !fs.existsSync(path.join(root, "issues")),
+      "empty parents should be removed",
+    );
   });
 });
