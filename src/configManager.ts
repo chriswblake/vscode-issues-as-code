@@ -44,7 +44,6 @@ export interface IssueConfig {
   showSyncState: boolean;
   showSyncIcons: ShowSyncIconsConfig;
   showStatusBarIcon: boolean;
-  enableExperimentalProjects: boolean;
   rateLimitThreshold: number;
 }
 
@@ -120,8 +119,6 @@ export function getConfig(
           synchronized: rawShowSyncIcons.synchronized ?? true,
         },
         showStatusBarIcon: cfg.get<boolean>("showStatusBarIcon") ?? true,
-        enableExperimentalProjects:
-          cfg.get<boolean>("enable_experimental_projects") ?? false,
         rateLimitThreshold: cfg.get<number>("rateLimitThreshold") ?? 5,
       };
     } catch {
@@ -141,7 +138,6 @@ export function getConfig(
     showSyncState: false,
     showSyncIcons: { newIssue: true, modified: true, synchronized: true },
     showStatusBarIcon: true,
-    enableExperimentalProjects: false,
     rateLimitThreshold: 5,
   };
 }
