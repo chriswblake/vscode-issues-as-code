@@ -215,7 +215,10 @@ function registerProviders(context: vscode.ExtensionContext): void {
   codeLensProvider = new PublishCodeLensProvider();
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
-      { scheme: "file", language: "markdown" },
+      [
+        { scheme: "file", language: "markdown" },
+        { scheme: "file", language: "task-md" },
+      ],
       codeLensProvider,
     ),
   );
@@ -244,7 +247,10 @@ function registerProviders(context: vscode.ExtensionContext): void {
     completionProvider = new FrontmatterCompletionProvider(client);
     context.subscriptions.push(
       vscode.languages.registerCompletionItemProvider(
-        { scheme: "file", language: "markdown" },
+        [
+          { scheme: "file", language: "markdown" },
+          { scheme: "file", language: "task-md" },
+        ],
         completionProvider,
         ":",
         " ",
