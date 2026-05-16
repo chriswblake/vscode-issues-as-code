@@ -2,9 +2,9 @@ import * as assert from "assert";
 import {
   RateLimitMonitor,
   formatResetTime,
-  parseRateLimitHeaders,
   type RateLimitInfo,
 } from "../src/rateLimitMonitor";
+import { parseRateLimitHeaders } from "../src/plugins/gh-issues/githubClient";
 
 // ---------------------------------------------------------------------------
 // parseRateLimitHeaders
@@ -25,7 +25,7 @@ suite("rateLimitMonitor – parseRateLimitHeaders", () => {
 
     // Assert
     assert.deepStrictEqual(result, {
-      bucket: "core",
+      bucket: "gh-issues:core",
       limit: 5000,
       remaining: 4990,
       used: 10,
@@ -47,7 +47,7 @@ suite("rateLimitMonitor – parseRateLimitHeaders", () => {
     const result = parseRateLimitHeaders(headers);
 
     // Assert
-    assert.strictEqual(result?.bucket, "search");
+    assert.strictEqual(result?.bucket, "gh-issues:search");
   });
 
   test("parseRateLimitHeaders: detects search bucket from request path", () => {
@@ -65,7 +65,7 @@ suite("rateLimitMonitor – parseRateLimitHeaders", () => {
     );
 
     // Assert
-    assert.strictEqual(result?.bucket, "search");
+    assert.strictEqual(result?.bucket, "gh-issues:search");
   });
 
   test("parseRateLimitHeaders: returns null when headers are missing", () => {

@@ -1,8 +1,8 @@
 import * as path from "path";
 import type * as vscodeType from "vscode";
-import type { GitHubClient } from "./plugins/githubClient";
-import type { SyncStateManager } from "./syncStateManager";
-import { parseOwnerRepo } from "./configManager";
+import type { GitHubClient } from "./githubClient";
+import type { SyncStateManager } from "../../syncStateManager";
+import { parseOwnerRepo } from "../../configManager";
 
 // Lazy vscode import so unit tests can run without a VS Code instance
 function vscode(): typeof vscodeType {

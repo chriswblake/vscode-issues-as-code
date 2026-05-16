@@ -9,7 +9,7 @@ import {
 } from "./fileManager";
 import { type SyncTarget, type IssueConfig } from "./configManager";
 import { SyncStateManager, type RemoteIssueInfo } from "./syncStateManager";
-import { type PrimarySyncPlugin, type PullItem } from "./plugins/syncPlugin";
+import { type PrimarySyncPlugin, type PullItem } from "./pluginTypes";
 import { type RateLimitMonitor } from "./rateLimitMonitor";
 
 /** Result of a single target refresh operation. */

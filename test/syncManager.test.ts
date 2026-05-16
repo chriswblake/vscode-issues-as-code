@@ -11,7 +11,7 @@ import {
   reconcileTargetChanges,
   removeEmptyParentDirs,
 } from "../src/syncManager";
-import { GhIssuesPlugin } from "../src/plugins/ghIssuesPlugin";
+import { GhIssuesPlugin } from "../src/plugins/gh-issues/ghIssuesPlugin";
 import {
   SyncStateManager,
   type RemoteIssueInfo,

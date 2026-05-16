@@ -200,16 +200,10 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
     );
     const htmlUrl = pluginData?.html_url as string | undefined;
 
-    const url =
-      htmlUrl ??
-      (parts.length >= 3
-        ? `https://github.com/${parts.slice(0, -1).join("/")}/issues/${parts[parts.length - 1]}`
-        : undefined);
-
     return new vs.CodeLens(range, {
       title: `🔗 ${label}`,
-      command: url ? "vscode.open" : "",
-      arguments: url ? [vs.Uri.parse(url)] : [],
+      command: htmlUrl ? "vscode.open" : "",
+      arguments: htmlUrl ? [vs.Uri.parse(htmlUrl)] : [],
     });
   }
 

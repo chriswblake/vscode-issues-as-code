@@ -10,8 +10,8 @@ function vscode(): typeof vscodeType {
 // Types
 // ---------------------------------------------------------------------------
 
-/** GitHub rate limit buckets we track independently. */
-export type RateLimitBucket = "core" | "search";
+/** Rate limit bucket identifier (e.g. "gh-issues:core", "gh-issues:search"). */
+export type RateLimitBucket = string;
 
 export interface RateLimitInfo {
   bucket: RateLimitBucket;
@@ -30,8 +30,8 @@ export type RateLimitChangeListener = () => void;
 // ---------------------------------------------------------------------------
 
 /**
- * Tracks GitHub API rate limits per bucket (core, search) and pauses
- * automatic syncing when the remaining quota drops below a threshold.
+ * Tracks API rate limits per bucket and pauses automatic syncing when the
+ * remaining quota drops below a threshold.
  *
  * - Updates passively from API response headers (no extra API calls).
  * - Pauses automatic syncs when quota is critically low.
@@ -73,7 +73,7 @@ export class RateLimitMonitor {
     this.reevaluatePauseState();
   }
 
-  /** Called after each GitHub API response to update rate limit state. */
+  /** Called after each API response to update rate limit state. */
   update(info: RateLimitInfo): void {
     this.buckets.set(info.bucket, info);
     this.reevaluatePauseState();
@@ -223,37 +223,4 @@ export function formatResetTime(resetDate: Date): string {
   }
 
   return `at ${resetDate.toLocaleTimeString()}`;
-}
-
-/**
- * Extracts rate limit info from GitHub API response headers.
- * Returns null if headers are missing (e.g. non-GitHub responses).
- */
-export function parseRateLimitHeaders(
-  headers: Record<string, string | undefined>,
-  requestPath?: string,
-): RateLimitInfo | null {
-  const limit = headers["x-ratelimit-limit"];
-  const remaining = headers["x-ratelimit-remaining"];
-  const reset = headers["x-ratelimit-reset"];
-  const used = headers["x-ratelimit-used"];
-
-  if (limit === undefined || remaining === undefined || reset === undefined) {
-    return null;
-  }
-
-  // Determine bucket from the x-ratelimit-resource header or request path
-  const resource = headers["x-ratelimit-resource"];
-  let bucket: RateLimitBucket = "core";
-  if (resource === "search" || requestPath?.includes("/search/")) {
-    bucket = "search";
-  }
-
-  return {
-    bucket,
-    limit: parseInt(limit, 10),
-    remaining: parseInt(remaining, 10),
-    used: used !== undefined ? parseInt(used, 10) : 0,
-    resetEpoch: parseInt(reset, 10),
-  };
 }

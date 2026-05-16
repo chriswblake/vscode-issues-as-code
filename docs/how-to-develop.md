@@ -79,16 +79,49 @@ If cloning fails in Extension Development Host, that is expected for some setups
 
 ## 4. Project Structure
 
-| Path                   | Purpose                                                 |
-| ---------------------- | ------------------------------------------------------- |
-| `src/extension.ts`     | Entry point — `activate` / `deactivate`                 |
-| `src/configManager.ts` | Configuration helpers, repo detection, `resolveQuery`   |
-| `src/githubClient.ts`  | Octokit wrapper — REST + GraphQL calls                  |
-| `src/fileManager.ts`   | Read / write / serialize `.task.md` issue files              |
-| `src/syncManager.ts`   | Orchestration — watcher, debounce, pull timer, conflict |
-| `test/`                | Mocha unit and integration tests                        |
-| `docs/`                | Developer documentation                                 |
-| `.vscode/`             | Launch and task configurations                          |
+| Path                             | Purpose                                                 |
+| -------------------------------- | ------------------------------------------------------- |
+| `src/extension.ts`               | Entry point — `activate` / `deactivate`                 |
+| `src/configManager.ts`           | Configuration helpers, repo detection                   |
+| `src/fileManager.ts`             | Read / write / serialize `.task.md` issue files         |
+| `src/syncManager.ts`             | Orchestration — watcher, debounce, pull timer, conflict |
+| `src/syncStateManager.ts`        | Tracks sync state (remote revisions, local writes)      |
+| `src/pluginTypes.ts`             | Plugin interfaces and contracts (core-facing)           |
+| `src/pluginRegistry.ts`          | Plugin registry — lookup plugins by ID                  |
+| `src/rateLimitMonitor.ts`        | Generic API rate limit tracking and pause logic         |
+| `src/statusBarManager.ts`        | Status bar UI (icon, tooltip, panel)                    |
+| `src/issueDecorationProvider.ts` | Explorer file decorations (sync state badges)           |
+| `src/publishCodeLensProvider.ts` | CodeLens actions (Publish, Sync Now, Pull Changes)      |
+| `src/plugins/loader.ts`          | Plugin discovery and initialization                     |
+| `src/plugins/gh-issues/`         | GitHub Issues plugin (primary sync plugin)              |
+| `src/plugins/gh-projects/`       | GitHub Projects plugin (metadata enrichment)            |
+| `src/plugins/ticktick/`          | TickTick plugin (placeholder — not yet implemented)     |
+| `test/`                          | Mocha unit and integration tests                        |
+| `docs/`                          | Developer documentation                                 |
+| `.vscode/`                       | Launch and task configurations                          |
+
+### Plugin Architecture
+
+Each plugin lives in its own subfolder under `src/plugins/`. A plugin folder contains:
+
+- `index.ts` — barrel export (including the bootstrap)
+- `*Plugin.ts` — implements `PrimarySyncPlugin` or `MetadataPlugin`
+- `*Bootstrap.ts` — implements `PluginBootstrap` (init, commands, providers)
+- Supporting files (API clients, providers, etc.)
+
+The core program (`src/*.ts`) never imports plugin implementation files directly.
+It interacts with plugins only through:
+
+1. `src/pluginTypes.ts` — defines the interfaces plugins must implement
+2. `src/pluginRegistry.ts` — runtime lookup of registered plugins
+3. `src/plugins/loader.ts` — discovers and initializes all plugins
+
+To add a new plugin:
+
+1. Create a folder under `src/plugins/<plugin-name>/`
+2. Implement `PrimarySyncPlugin` (or `MetadataPlugin`) and `PluginBootstrap`
+3. Export the bootstrap from the folder's `index.ts`
+4. Add one import + array entry in `src/plugins/loader.ts`
 
 ## 5. Common Extension Tasks
 
@@ -106,7 +139,7 @@ If cloning fails in Extension Development Host, that is expected for some setups
 
 ### Use the GitHub API
 
-`GitHubClient` wraps `@octokit/rest`. To call a new REST endpoint:
+`GitHubClient` (in `src/plugins/gh-issues/githubClient.ts`) wraps `@octokit/rest`. To call a new REST endpoint:
 
 ```typescript
 const { data } = await this.octokit.rest.issues.listComments({

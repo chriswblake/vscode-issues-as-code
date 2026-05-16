@@ -1,14 +1,14 @@
 import * as fs from "fs";
 import * as path from "path";
-import type { IssueFrontmatter } from "../fileManager";
+import type { IssueFrontmatter } from "../../fileManager";
 import type { GitHubClient, IssueData } from "./githubClient";
-import type { RemoteIssueInfo, SyncStateEntry } from "../syncStateManager";
+import type { RemoteIssueInfo, SyncStateEntry } from "../../syncStateManager";
 import type {
   PrimarySyncPlugin,
   PullItem,
   PushResult,
   PluginContext,
-} from "./syncPlugin";
+} from "../../pluginTypes";
 
 // ---------------------------------------------------------------------------
 // GitHub Issues frontmatter shape (plugin-internal)

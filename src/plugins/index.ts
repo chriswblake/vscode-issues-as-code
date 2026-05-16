@@ -4,12 +4,6 @@ export {
   buildFileName,
   matchesFilter,
   resolveQueryDateTokens,
-} from "./ghIssuesPlugin";
-export type { GhIssuesFilters, GhIssuesPluginConfig } from "./ghIssuesPlugin";
-export { GhProjectsPlugin } from "./ghProjectsPlugin";
-export type { ProjectFieldData } from "./ghProjectsPlugin";
-export { TickTickPlugin } from "./tickTickPlugin";
-export {
   detectRepo,
   defaultSyncTargets,
   createGhIssuesPlugin,
@@ -17,7 +11,11 @@ export {
   getGhIssuesIncludedConfigs,
   hasDuplicateGhIssuesTarget,
   parseGitHubUrl,
-} from "./ghIssuesBootstrap";
+} from "./gh-issues";
+export type { GhIssuesFilters, GhIssuesPluginConfig } from "./gh-issues";
+export { GhProjectsPlugin } from "./gh-projects";
+export type { ProjectFieldData } from "./gh-projects";
+export { TickTickPlugin } from "./ticktick";
 export {
   registerPrimaryPlugin,
   registerMetadataPlugin,
@@ -25,7 +23,7 @@ export {
   getMetadataPlugin,
   getPrimaryPluginIds,
   getMetadataPluginIds,
-} from "./syncPlugin";
+} from "../pluginRegistry";
 export type {
   PrimarySyncPlugin,
   MetadataPlugin,
@@ -33,4 +31,6 @@ export type {
   PushResult,
   PluginContext,
   IncludedSyncTargetConfig,
-} from "./syncPlugin";
+  PluginProviderContext,
+  ManagedPluginTarget,
+} from "../pluginTypes";

@@ -1,5 +1,5 @@
 import * as assert from "assert";
-import { getFrontmatterContext } from "../src/frontmatterCompletionProvider";
+import { getFrontmatterContext } from "../src/plugins/gh-issues/frontmatterCompletionProvider";
 
 // ---------------------------------------------------------------------------
 // Helpers

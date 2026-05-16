@@ -1,11 +1,11 @@
-import type { IssueFrontmatter } from "../fileManager";
-import type { SyncStateEntry } from "../syncStateManager";
+import type { IssueFrontmatter } from "../../fileManager";
+import type { SyncStateEntry } from "../../syncStateManager";
 import type {
   PrimarySyncPlugin,
   PullItem,
   PushResult,
   PluginContext,
-} from "./syncPlugin";
+} from "../../pluginTypes";
 
 // ---------------------------------------------------------------------------
 // TickTick plugin (placeholder)

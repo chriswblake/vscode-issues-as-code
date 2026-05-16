@@ -32,8 +32,18 @@ pulling - applying fetched changes to the local task files. This can be done aut
 
 ### Plugin architecture
 
-Do not directly reference plugin specific logic in the core program.
-Plugins are dynamically loaded at runtime.
+The core program is located in the root of the src folder (`src/*.ts`).
+
+The core program provides a plugin interface for clean separation of concerns.
+Plugins must implement the plugin interface.
+Plugins implementations must be dynamically loaded at runtime.
+
+Do not directly embedded anything for single plugin in the core program.
+Anything related to an implemented plugin must stay within the plugins folder (`src/plugins/**`)
+
+Each plugin lives in its own subfolder (e.g. `src/plugins/gh-issues/`).
+The plugin loader (`src/plugins/loader.ts`) is the only file core imports from the plugins folder.
+
 
 ## Testing
 

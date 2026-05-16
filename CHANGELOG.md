@@ -2,6 +2,14 @@
 
 ## Pending
 
+### Refactor
+
+- **Plugin architecture enforced.** Core program (`src/*.ts`) no longer references any plugin-specific logic. All plugin code is isolated in `src/plugins/` subfolders. Plugins register their own VS Code providers (completions, rate limit wiring) via the new `registerProviders()` bootstrap hook.
+- **Plugins reorganized into subfolders.** Each plugin now lives in its own folder (`src/plugins/gh-issues/`, `src/plugins/gh-projects/`, `src/plugins/ticktick/`), making implementations easy to identify and navigate.
+- **Plugin types and registry moved to core.** `src/pluginTypes.ts` defines the contracts plugins implement; `src/pluginRegistry.ts` provides runtime lookup. Plugins import from core, not vice versa.
+- **Rate limit monitor made generic.** No longer GitHub-specific — bucket names are namespaced by plugin (e.g. `gh-issues:core`). The `parseRateLimitHeaders` function moved into the GitHub plugin.
+- **Frontmatter completion provider moved to GitHub plugin.** It depends on the GitHub API and is no longer part of core.
+
 ### Bug Fixes
 
 - **Issues matching multiple sync targets now appear in all matching folders.** Previously, if an issue matched more than one sync target, it would only show in the last one processed. Each target now independently tracks its own copy.

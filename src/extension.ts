@@ -25,7 +25,6 @@ import {
 } from "./fileManager";
 import { IssueDecorationProvider } from "./issueDecorationProvider";
 import { PublishCodeLensProvider } from "./publishCodeLensProvider";
-import { FrontmatterCompletionProvider } from "./frontmatterCompletionProvider";
 import { RateLimitMonitor } from "./rateLimitMonitor";
 import {
   StatusBarManager,
@@ -35,26 +34,23 @@ import {
 import {
   initializePlugins,
   registerPluginCommands,
+  registerPluginProviders,
   detectDefaultTargets,
   persistDefaultTargets,
   getAllIncludedConfigs,
   type IncludedConfigItem,
 } from "./plugins/loader";
-import {
-  getPrimaryPlugin,
-  getPrimaryPluginIds,
-  type PrimarySyncPlugin,
-} from "./plugins/syncPlugin";
-import { GitHubClient } from "./plugins/githubClient";
+import { getPrimaryPlugin, getPrimaryPluginIds } from "./pluginRegistry";
+import type { PrimarySyncPlugin, ManagedPluginTarget } from "./pluginTypes";
 
 const syncManagers: SyncManager[] = [];
 let decorationProvider: IssueDecorationProvider | undefined;
 let codeLensProvider: PublishCodeLensProvider | undefined;
-let completionProvider: FrontmatterCompletionProvider | undefined;
 let rateLimitMonitor: RateLimitMonitor | undefined;
 let statusBarManager: StatusBarManager | undefined;
 const syncChangeUnsubscribers: (() => void)[] = [];
 const pushChangeUnsubscribers: (() => void)[] = [];
+const targetChangeListeners: (() => void)[] = [];
 
 // Serializes reinitializations so rapid config-change events don't overlap.
 // Each call is chained after the previous one; all callers await the same chain tail.
@@ -225,7 +221,6 @@ function registerProviders(context: vscode.ExtensionContext): void {
 
   // Rate limit monitor (pause logic)
   rateLimitMonitor = new RateLimitMonitor();
-  GitHubClient.setRateLimitMonitor(rateLimitMonitor);
   context.subscriptions.push({ dispose: () => rateLimitMonitor?.dispose() });
 
   // Status bar manager (icon + tooltip + panel)
@@ -239,25 +234,20 @@ function registerProviders(context: vscode.ExtensionContext): void {
   });
   context.subscriptions.push({ dispose: unsubscribeRateLimit });
 
-  // Completion provider for frontmatter fields (state, labels, assignees)
-  void GitHubClient.authenticate().then((client) => {
-    if (!client) {
-      return;
-    }
-    completionProvider = new FrontmatterCompletionProvider(client);
-    context.subscriptions.push(
-      vscode.languages.registerCompletionItemProvider(
-        [
-          { scheme: "file", language: "markdown" },
-          { scheme: "file", language: "task-md" },
-        ],
-        completionProvider,
-        ":",
-        " ",
-        "-",
-        "\n",
-      ),
-    );
+  // Let plugins register their own VS Code providers
+  registerPluginProviders({
+    extensionContext: context,
+    rateLimitMonitor,
+    getTargets: () => getPluginTargets(),
+    onDidChangeTargets: (listener) => {
+      targetChangeListeners.push(listener);
+      return () => {
+        const idx = targetChangeListeners.indexOf(listener);
+        if (idx >= 0) {
+          targetChangeListeners.splice(idx, 1);
+        }
+      };
+    },
   });
 
   // Track unsaved editor changes to show M badge immediately
@@ -377,7 +367,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
       if (syncManagers.length === 0) {
         void vscode.window.showWarningMessage(
-          "No sync targets are active for this workspace. Configure issuesAsCode.syncTargets or open a folder with a GitHub remote.",
+          "No sync targets are active for this workspace. Configure issuesAsCode.syncTargets in your settings.",
         );
         return;
       }
@@ -456,7 +446,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       const items = await getAllIncludedConfigs(folder);
       if (items.length === 0) {
         void vscode.window.showWarningMessage(
-          "No sync target presets are available. Check your GitHub authentication and that this workspace has a GitHub remote.",
+          "No sync target presets are available. Check your authentication and workspace configuration.",
         );
         return;
       }
@@ -863,32 +853,33 @@ async function activateFolder(
     codeLensProvider.update(codeLensTargets);
   }
 
-  // Update completion provider with managed targets (extract repository from gh-issues config)
-  if (completionProvider) {
-    const completionTargets = syncManagers.map((m) => {
-      const pluginConfig = m.target[m.plugin.id] as
-        | Record<string, unknown>
-        | undefined;
-      const filters = pluginConfig?.["filters"] as
-        | Record<string, unknown>
-        | undefined;
-      const repository =
-        typeof filters?.["repository"] === "string"
-          ? filters["repository"]
-          : undefined;
-      return {
-        filesDir: m.target.filesDir,
-        pluginId: m.plugin.id,
-        repository,
-        stateManager: m.stateManager,
-      };
-    });
-    completionProvider.update(completionTargets);
+  // Notify plugins that targets have changed
+  for (const listener of targetChangeListeners) {
+    try {
+      listener();
+    } catch {
+      // Ignore listener errors
+    }
   }
 
   // Update status bar visibility and summary
   statusBarManager?.setVisible(config.showStatusBarIcon);
   refreshStatusBarSummary();
+}
+
+/** Returns current managed targets for plugin provider consumption. */
+function getPluginTargets(): ManagedPluginTarget[] {
+  return syncManagers.map((m) => {
+    const pluginConfig =
+      (m.target[m.plugin.id] as Record<string, unknown>) ?? {};
+    return {
+      filesDir: m.target.filesDir,
+      pluginId: m.plugin.id,
+      pluginConfig,
+      stateManager: m.stateManager,
+      readOnly: m.target.readOnly,
+    };
+  });
 }
 
 export function deactivate(): void {

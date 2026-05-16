@@ -12,7 +12,7 @@ import {
   matchesFilter,
   buildFileName,
   type GhIssuesFilters,
-} from "../src/plugins/ghIssuesPlugin";
+} from "../src/plugins/gh-issues/ghIssuesPlugin";
 
 // ---------------------------------------------------------------------------
 // Section 1: buildFileName

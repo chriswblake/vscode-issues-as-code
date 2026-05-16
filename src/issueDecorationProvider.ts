@@ -56,7 +56,7 @@ interface ManagedLocation {
 
 /**
  * Provides file decorations (badge + tooltip) for issue files in the Explorer,
- * reflecting their sync status relative to GitHub.
+ * reflecting their sync status relative to the remote service.
  */
 export class IssueDecorationProvider
   implements vscodeType.FileDecorationProvider

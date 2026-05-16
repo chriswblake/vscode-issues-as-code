@@ -3,11 +3,15 @@
  * Extension.ts calls these generic functions without knowing which plugins exist.
  */
 import type { SyncTarget } from "../configManager";
-import type { PluginBootstrap, IncludedSyncTargetConfig } from "./syncPlugin";
+import type {
+  PluginBootstrap,
+  IncludedSyncTargetConfig,
+  PluginProviderContext,
+} from "../pluginTypes";
 
 // Import all available plugin bootstraps here.
 // Adding a new plugin = adding one import + one array entry.
-import { bootstrap as ghIssuesBootstrap } from "./ghIssuesBootstrap";
+import { bootstrap as ghIssuesBootstrap } from "./gh-issues";
 
 const allBootstraps: PluginBootstrap[] = [ghIssuesBootstrap];
 
@@ -50,6 +54,17 @@ export function registerPluginCommands(
 ): void {
   for (const b of allBootstraps) {
     b.registerCommands(context, reinitialize);
+  }
+}
+
+/**
+ * Register all plugin-specific VS Code providers (completions, decorations, etc.).
+ */
+export function registerPluginProviders(
+  providerContext: PluginProviderContext,
+): void {
+  for (const b of allBootstraps) {
+    b.registerProviders(providerContext);
   }
 }
 

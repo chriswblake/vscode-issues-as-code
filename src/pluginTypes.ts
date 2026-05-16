@@ -1,9 +1,10 @@
-import type { IssueFrontmatter } from "../fileManager";
+import type { IssueFrontmatter } from "./fileManager";
 import type {
   SyncStateManager,
   SyncStateEntry,
   RemoteIssueInfo,
-} from "../syncStateManager";
+} from "./syncStateManager";
+import type { SyncTarget } from "./configManager";
 
 // ---------------------------------------------------------------------------
 // Plugin result types
@@ -184,10 +185,6 @@ export interface MetadataPlugin {
 }
 
 // ---------------------------------------------------------------------------
-// Plugin registry
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Included Sync Target Config — preset configs offered by plugins
 // ---------------------------------------------------------------------------
 
@@ -201,11 +198,32 @@ export interface IncludedSyncTargetConfig {
   /** Optional description shown alongside the label (e.g. "owner/repo"). */
   description?: string;
   /** The sync target config to add. */
-  target: import("../configManager").SyncTarget;
+  target: SyncTarget;
   /** Whether this is the plugin's default config (used for auto-setup). */
   isDefault?: boolean;
   /** Returns true if a matching target already exists in the current config. */
-  isDuplicate(currentTargets: import("../configManager").SyncTarget[]): boolean;
+  isDuplicate(currentTargets: SyncTarget[]): boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Plugin Provider Context — narrow context passed to plugins for UI registration
+// ---------------------------------------------------------------------------
+
+/** Target info exposed to plugins for provider registration. */
+export interface ManagedPluginTarget {
+  filesDir: string;
+  pluginId: string;
+  pluginConfig: Record<string, unknown>;
+  stateManager: SyncStateManager;
+  readOnly?: boolean;
+}
+
+/** Context provided to plugins when registering VS Code providers. */
+export interface PluginProviderContext {
+  extensionContext: { subscriptions: { dispose(): void }[] };
+  rateLimitMonitor: import("./rateLimitMonitor").RateLimitMonitor;
+  getTargets(): ManagedPluginTarget[];
+  onDidChangeTargets(listener: () => void): () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +257,12 @@ export interface PluginBootstrap {
   ): void;
 
   /**
+   * Register plugin-specific VS Code providers (e.g. completions, decorations).
+   * Called once during activation, after initialize().
+   */
+  registerProviders(providerContext: PluginProviderContext): void;
+
+  /**
    * Returns preset sync target configs available for a workspace folder.
    * Configs that require repo detection or auth may be omitted if unavailable.
    */
@@ -252,7 +276,7 @@ export interface PluginBootstrap {
    */
   detectDefaults(workspaceFolder: {
     uri: { fsPath: string };
-  }): Promise<import("../configManager").SyncTarget[] | null>;
+  }): Promise<SyncTarget[] | null>;
 
   /**
    * Persist default sync targets to workspace settings if none are configured.
@@ -260,38 +284,5 @@ export interface PluginBootstrap {
    */
   persistDefaults(workspaceFolder: {
     uri: { fsPath: string };
-  }): Promise<import("../configManager").SyncTarget[] | null>;
-}
-
-// ---------------------------------------------------------------------------
-// Plugin Registry — lookup plugins by ID for multi-plugin scenarios
-// ---------------------------------------------------------------------------
-
-const primaryPlugins = new Map<string, PrimarySyncPlugin>();
-const metadataPlugins = new Map<string, MetadataPlugin>();
-
-export function registerPrimaryPlugin(plugin: PrimarySyncPlugin): void {
-  primaryPlugins.set(plugin.id, plugin);
-}
-
-export function registerMetadataPlugin(plugin: MetadataPlugin): void {
-  metadataPlugins.set(plugin.id, plugin);
-}
-
-export function getPrimaryPlugin(id: string): PrimarySyncPlugin | undefined {
-  return primaryPlugins.get(id);
-}
-
-export function getMetadataPlugin(id: string): MetadataPlugin | undefined {
-  return metadataPlugins.get(id);
-}
-
-/** Returns all registered primary plugin IDs. */
-export function getPrimaryPluginIds(): string[] {
-  return [...primaryPlugins.keys()];
-}
-
-/** Returns all registered metadata plugin IDs. */
-export function getMetadataPluginIds(): string[] {
-  return [...metadataPlugins.keys()];
+  }): Promise<SyncTarget[] | null>;
 }

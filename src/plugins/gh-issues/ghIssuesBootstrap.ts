@@ -1,14 +1,16 @@
 import * as path from "path";
 import type * as vscodeType from "vscode";
-import type { SyncTarget, RepoInfo } from "../configManager";
+import type { SyncTarget, RepoInfo } from "../../configManager";
 import { GhIssuesPlugin } from "./ghIssuesPlugin";
 import { GitHubClient } from "./githubClient";
-import {
-  registerPrimaryPlugin,
-  type PrimarySyncPlugin,
-  type PluginBootstrap,
-  type IncludedSyncTargetConfig,
-} from "./syncPlugin";
+import { FrontmatterCompletionProvider } from "./frontmatterCompletionProvider";
+import { registerPrimaryPlugin } from "../../pluginRegistry";
+import type {
+  PrimarySyncPlugin,
+  PluginBootstrap,
+  IncludedSyncTargetConfig,
+  PluginProviderContext,
+} from "../../pluginTypes";
 
 // Lazy vscode import so unit tests can run without a VS Code instance
 function vscode(): typeof vscodeType {
@@ -274,6 +276,60 @@ export const bootstrap: PluginBootstrap = {
     _reinitialize: () => Promise<void>,
   ): void {
     // No plugin-specific commands; presets are handled via getIncludedConfigs.
+  },
+
+  registerProviders(providerContext: PluginProviderContext): void {
+    // Wire up rate limit monitoring for GitHub API calls
+    GitHubClient.setRateLimitMonitor(providerContext.rateLimitMonitor);
+
+    // Register frontmatter completion provider (labels, assignees, state)
+    void GitHubClient.authenticate().then((client) => {
+      if (!client) {
+        return;
+      }
+      const completionProvider = new FrontmatterCompletionProvider(client);
+      const { extensionContext } = providerContext;
+
+      extensionContext.subscriptions.push(
+        vscode().languages.registerCompletionItemProvider(
+          [
+            { scheme: "file", language: "markdown" },
+            { scheme: "file", language: "task-md" },
+          ],
+          completionProvider,
+          ":",
+          " ",
+          "-",
+          "\n",
+        ),
+      );
+
+      // Update targets now and whenever they change
+      const updateTargets = () => {
+        const targets = providerContext.getTargets();
+        const completionTargets = targets
+          .filter((t) => t.pluginId === "gh-issues")
+          .map((t) => {
+            const filters = t.pluginConfig?.["filters"] as
+              | Record<string, unknown>
+              | undefined;
+            const repository =
+              typeof filters?.["repository"] === "string"
+                ? filters["repository"]
+                : undefined;
+            return {
+              filesDir: t.filesDir,
+              pluginId: t.pluginId,
+              repository,
+              stateManager: t.stateManager,
+            };
+          });
+        completionProvider.update(completionTargets);
+      };
+
+      updateTargets();
+      providerContext.onDidChangeTargets(updateTargets);
+    });
   },
 
   async getIncludedConfigs(workspaceFolder: {

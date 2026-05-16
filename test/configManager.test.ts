@@ -5,7 +5,7 @@ import * as os from "os";
 import {
   resolveQueryDateTokens as resolveQuery,
   buildSearchQuery as buildGhIssuesQuery,
-} from "../src/plugins/ghIssuesPlugin";
+} from "../src/plugins/gh-issues/ghIssuesPlugin";
 import {
   getConfig,
   parseOwnerRepo,
@@ -15,7 +15,7 @@ import {
 import {
   defaultSyncTargets,
   openIssuesTarget,
-} from "../src/plugins/ghIssuesBootstrap";
+} from "../src/plugins/gh-issues/ghIssuesBootstrap";
 
 // ---------------------------------------------------------------------------
 // Section 1: resolveQuery – basic {today-Nd} substitution
