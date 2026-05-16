@@ -61,7 +61,7 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
   ): vscodeType.CodeLens[] {
     const filePath = document.uri.fsPath;
 
-    // Only provide CodeLens for .md files inside managed target directories
+    // Only provide CodeLens for .task.md files inside managed target directories
     const matchingTarget = this.targets.find(
       (t) =>
         filePath === t.filesDir || filePath.startsWith(t.filesDir + path.sep),
@@ -69,7 +69,7 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
     if (!matchingTarget) {
       return [];
     }
-    if (!filePath.endsWith(".md")) {
+    if (!filePath.endsWith(".task.md")) {
       return [];
     }
 

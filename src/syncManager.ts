@@ -139,7 +139,7 @@ export class SyncManager {
     this.watcher = vs.workspace.createFileSystemWatcher(
       new vs.RelativePattern(
         this.workspaceFolder, //
-        `${locationRelative}/**/*.md`,
+        `${locationRelative}/**/*.task.md`,
       ),
     );
 
@@ -272,7 +272,7 @@ export class SyncManager {
       }
 
       const expectedFileName =
-        this.plugin.buildFileName(item.namingTokens, naming) + ".md";
+        this.plugin.buildFileName(item.namingTokens, naming) + ".task.md";
       const expectedPath = path.join(this.target.filesDir, expectedFileName);
 
       // Look for existing file tracking this remote item (by unique remoteKey)
@@ -644,7 +644,7 @@ export class SyncManager {
     // Write updated file with server-assigned data
     const naming = this.target.naming ?? this.plugin.defaultFileName;
     const expectedFileName =
-      this.plugin.buildFileName(result.namingTokens, naming) + ".md";
+      this.plugin.buildFileName(result.namingTokens, naming) + ".task.md";
     const expectedPath = path.join(this.target.filesDir, expectedFileName);
 
     const updatedFrontmatter: IssueFrontmatter = {
@@ -815,7 +815,7 @@ export class SyncManager {
     );
   }
 
-  /** Handles a newly created .md file — never auto-pushes (see CodeLens provider). */
+  /** Handles a newly created .task.md file — never auto-pushes (see CodeLens provider). */
   private async handleNewFile(_uri: vscodeType.Uri): Promise<void> {
     // New file events are intentionally ignored for push.
     // Files pulled from remote are suppressed during write.

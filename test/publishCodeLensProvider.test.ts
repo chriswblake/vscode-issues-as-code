@@ -87,7 +87,7 @@ suite("publishCodeLensProvider – isFileModified", () => {
   test("isFileModified: returns false when stateEntry is undefined", () => {
     // Arrange
     const dir = makeTempDir();
-    const filePath = path.join(dir, "issue.md");
+    const filePath = path.join(dir, "issue.task.md");
     fs.writeFileSync(filePath, "# Hello\n", "utf8");
 
     // Act
@@ -101,7 +101,7 @@ suite("publishCodeLensProvider – isFileModified", () => {
   test("isFileModified: returns false when file mtime is older than local_written_at", () => {
     // Arrange
     const dir = makeTempDir();
-    const filePath = path.join(dir, "issue.md");
+    const filePath = path.join(dir, "issue.task.md");
     fs.writeFileSync(filePath, "# Hello\n", "utf8");
     // Set local_written_at to future (file appears old)
     const future = new Date(Date.now() + 60_000).toISOString();
@@ -122,7 +122,7 @@ suite("publishCodeLensProvider – isFileModified", () => {
   test("isFileModified: returns true when file mtime is newer than local_written_at", () => {
     // Arrange
     const dir = makeTempDir();
-    const filePath = path.join(dir, "issue.md");
+    const filePath = path.join(dir, "issue.task.md");
     // Set local_written_at to a time well in the past
     const past = new Date(Date.now() - 10_000).toISOString();
     fs.writeFileSync(filePath, "# Hello\n", "utf8");
@@ -142,7 +142,7 @@ suite("publishCodeLensProvider – isFileModified", () => {
 
   test("isFileModified: returns false when file does not exist", () => {
     // Arrange
-    const filePath = "/nonexistent/path/issue.md";
+    const filePath = "/nonexistent/path/issue.task.md";
     const stateEntry = {
       local_written_at: new Date(Date.now() - 5000).toISOString(),
     };

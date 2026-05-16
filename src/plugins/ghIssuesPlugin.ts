@@ -257,7 +257,7 @@ function inferTitle(
     }
   }
 
-  return path.basename(filePath, path.extname(filePath)).trim() || "New issue";
+  return path.basename(filePath, ".task.md").trim() || "New issue";
 }
 
 // ---------------------------------------------------------------------------
@@ -461,10 +461,10 @@ export class GhIssuesPlugin implements PrimarySyncPlugin {
     }
 
     for (const file of files) {
-      if (!file.endsWith(".md")) {
+      if (!file.endsWith(".task.md")) {
         continue;
       }
-      const base = file.slice(0, -3);
+      const base = file.slice(0, -".task.md".length);
       const tokens: Record<string, string | number> = {
         "gh-issues.number": remoteId,
         "gh-issues.title": base,

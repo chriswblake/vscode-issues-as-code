@@ -26,7 +26,7 @@ Edit an issue file and save — your changes are pushed back to GitHub after a s
 - **Auto-push** — edits are pushed to GitHub after a configurable delay, on focus change, or on window change
 - **Manual save** (Ctrl+S) pushes immediately, regardless of auto-push settings
 - **Smart conflict resolution** — non-conflicting remote changes are auto-accepted; conflicts open a merge editor
-- **Create issues** — save a new `.md` file in a sync target folder and click 'publish' to add to your repo
+- **Create issues** — save a new `.task.md` file in a sync target folder and click 'publish' to add to your repo
 
 ### Editing
 

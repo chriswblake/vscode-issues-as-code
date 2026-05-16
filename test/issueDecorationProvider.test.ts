@@ -52,7 +52,7 @@ suite("issueDecorationProvider – new issue status", () => {
     const statePath = makeTempStatePath(dir);
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
-    const issueFile = path.join(dir, "1-new-issue.md");
+    const issueFile = path.join(dir, "1-new-issue.task.md");
     fs.writeFileSync(issueFile, "# New issue\n", "utf8");
 
     const provider = new IssueDecorationProvider();
@@ -78,7 +78,7 @@ suite("issueDecorationProvider – new issue status", () => {
     const statePath = makeTempStatePath(dir);
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
-    const issueFile = path.join(dir, "1-new-issue.md");
+    const issueFile = path.join(dir, "1-new-issue.task.md");
     fs.writeFileSync(issueFile, "# New issue\n", "utf8");
 
     const provider = new IssueDecorationProvider();
@@ -109,7 +109,7 @@ suite("issueDecorationProvider – synchronized status", () => {
     const statePath = makeTempStatePath(dir);
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
-    const issueFile = path.join(dir, "1-synced-issue.md");
+    const issueFile = path.join(dir, "1-synced-issue.task.md");
 
     // Write and immediately record sync state (local_written_at = now)
     fs.writeFileSync(issueFile, "# Synced issue\n", "utf8");
@@ -147,7 +147,7 @@ suite("issueDecorationProvider – synchronized status", () => {
     const statePath = makeTempStatePath(dir);
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
-    const issueFile = path.join(dir, "1-synced-issue.md");
+    const issueFile = path.join(dir, "1-synced-issue.task.md");
 
     fs.writeFileSync(issueFile, "# Synced issue\n", "utf8");
     await stateManager.setSyncedAt(
@@ -188,7 +188,7 @@ suite("issueDecorationProvider – modified status", () => {
     const statePath = makeTempStatePath(dir);
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
-    const issueFile = path.join(dir, "1-modified-issue.md");
+    const issueFile = path.join(dir, "1-modified-issue.task.md");
 
     // Set sync state first, then set mtime far in the future to simulate user edit
     fs.writeFileSync(issueFile, "# Issue\n", "utf8");
@@ -225,7 +225,7 @@ suite("issueDecorationProvider – modified status", () => {
     const statePath = makeTempStatePath(dir);
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
-    const issueFile = path.join(dir, "1-modified-issue.md");
+    const issueFile = path.join(dir, "1-modified-issue.task.md");
 
     fs.writeFileSync(issueFile, "# Issue\n", "utf8");
     await stateManager.setSyncedAt(
@@ -260,7 +260,7 @@ suite("issueDecorationProvider – modified status", () => {
 // ---------------------------------------------------------------------------
 
 suite("issueDecorationProvider – path filtering", () => {
-  test("returns undefined for a non-.md file", async () => {
+  test("returns undefined for a non-.task.md file", async () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
@@ -283,7 +283,7 @@ suite("issueDecorationProvider – path filtering", () => {
     assert.strictEqual(decoration, undefined);
   });
 
-  test("returns undefined for a .md file outside all managed locations", async () => {
+  test("returns undefined for a .task.md file outside all managed locations", async () => {
     // Arrange
     const dir = makeTempDir();
     const otherDir = makeTempDir();
@@ -300,7 +300,7 @@ suite("issueDecorationProvider – path filtering", () => {
 
     // Act
     const decoration = provider.provideFileDecoration(
-      makeUri(path.join(otherDir, "1-outside.md")) as any,
+      makeUri(path.join(otherDir, "1-outside.task.md")) as any,
     );
 
     // Assert
@@ -315,7 +315,7 @@ suite("issueDecorationProvider – path filtering", () => {
 
     // Act
     const decoration = provider.provideFileDecoration(
-      makeUri(path.join(dir, "1-issue.md")) as any,
+      makeUri(path.join(dir, "1-issue.task.md")) as any,
     );
 
     // Assert
@@ -337,7 +337,7 @@ suite("syncStateManager – local_written_at", () => {
 
     // Act
     await manager.setSyncedAt(
-      "/issues/1.md",
+      "/issues/1.task.md",
       makeRemoteInfo(),
       "gh-issues",
       "owner/repo/1",
@@ -345,7 +345,7 @@ suite("syncStateManager – local_written_at", () => {
 
     // Assert
     const after = Date.now();
-    const entry = manager.getEntry("/issues/1.md");
+    const entry = manager.getEntry("/issues/1.task.md");
     assert.ok(entry, "entry should exist");
     const writtenAt = new Date(entry!.local_written_at).getTime();
     assert.ok(
@@ -362,7 +362,7 @@ suite("syncStateManager – local_written_at", () => {
 
     // Act
     await manager.setSyncedAt(
-      "/issues/1.md",
+      "/issues/1.task.md",
       makeRemoteInfo(),
       "gh-issues",
       "owner/repo/1",
@@ -373,7 +373,7 @@ suite("syncStateManager – local_written_at", () => {
       files: Record<string, Record<string, unknown>>;
     };
     assert.ok(
-      typeof raw.files["/issues/1.md"]["local_written_at"] === "string",
+      typeof raw.files["/issues/1.task.md"]["local_written_at"] === "string",
     );
   });
 });
@@ -393,14 +393,14 @@ suite("syncStateManager – onDidChange", () => {
 
     // Act
     await manager.setSyncedAt(
-      "/issues/1.md",
+      "/issues/1.task.md",
       makeRemoteInfo(),
       "gh-issues",
       "owner/repo/1",
     );
 
     // Assert
-    assert.deepStrictEqual(changed, ["/issues/1.md"]);
+    assert.deepStrictEqual(changed, ["/issues/1.task.md"]);
   });
 
   test("listener is called with file path when deleteEntry is called", async () => {
@@ -409,7 +409,7 @@ suite("syncStateManager – onDidChange", () => {
     const manager = new SyncStateManager(statePath);
     await manager.load();
     await manager.setSyncedAt(
-      "/issues/1.md",
+      "/issues/1.task.md",
       makeRemoteInfo(),
       "gh-issues",
       "owner/repo/1",
@@ -418,10 +418,10 @@ suite("syncStateManager – onDidChange", () => {
     manager.onDidChange((fp) => changed.push(fp));
 
     // Act
-    await manager.deleteEntry("/issues/1.md");
+    await manager.deleteEntry("/issues/1.task.md");
 
     // Assert
-    assert.deepStrictEqual(changed, ["/issues/1.md"]);
+    assert.deepStrictEqual(changed, ["/issues/1.task.md"]);
   });
 
   test("unsubscribed listener is not called after unsubscribe", async () => {
@@ -435,7 +435,7 @@ suite("syncStateManager – onDidChange", () => {
     // Act
     unsubscribe();
     await manager.setSyncedAt(
-      "/issues/1.md",
+      "/issues/1.task.md",
       makeRemoteInfo(),
       "gh-issues",
       "owner/repo/1",
@@ -457,7 +457,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     const statePath = makeTempStatePath(dir);
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
-    const issueFile = path.join(dir, "1-issue.md");
+    const issueFile = path.join(dir, "1-issue.task.md");
     fs.writeFileSync(issueFile, "# Issue\n", "utf8");
     await stateManager.setSyncedAt(
       issueFile,
@@ -494,7 +494,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     const statePath = makeTempStatePath(dir);
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
-    const issueFile = path.join(dir, "1-issue.md");
+    const issueFile = path.join(dir, "1-issue.task.md");
     fs.writeFileSync(issueFile, "# Issue\n", "utf8");
     await stateManager.setSyncedAt(
       issueFile,
@@ -531,7 +531,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     const statePath = makeTempStatePath(dir);
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
-    const issueFile = path.join(dir, "1-issue.md");
+    const issueFile = path.join(dir, "1-issue.task.md");
     fs.writeFileSync(issueFile, "# Issue\n", "utf8");
     await stateManager.setSyncedAt(
       issueFile,
@@ -567,7 +567,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     const otherDir = makeTempDir();
     const provider = new IssueDecorationProvider();
     provider.update([], { newIssue: true, modified: true, synchronized: true });
-    const outsideFile = path.join(otherDir, "1-issue.md");
+    const outsideFile = path.join(otherDir, "1-issue.task.md");
 
     // Act — should not throw, and should not affect anything
     provider.markDirty(outsideFile);
@@ -585,7 +585,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     const statePath = makeTempStatePath(dir);
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
-    const issueFile = path.join(dir, "1-issue.md");
+    const issueFile = path.join(dir, "1-issue.task.md");
     fs.writeFileSync(issueFile, "# Issue\n", "utf8");
     await stateManager.setSyncedAt(
       issueFile,
@@ -619,7 +619,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     const statePath = makeTempStatePath(dir);
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
-    const issueFile = path.join(dir, "1-issue.md");
+    const issueFile = path.join(dir, "1-issue.task.md");
     fs.writeFileSync(issueFile, "# Issue\n", "utf8");
     await stateManager.setSyncedAt(
       issueFile,

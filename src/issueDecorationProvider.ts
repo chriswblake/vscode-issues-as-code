@@ -129,7 +129,7 @@ export class IssueDecorationProvider
   }
 
   private isManaged(filePath: string): boolean {
-    if (!filePath.endsWith(".md")) {
+    if (!filePath.endsWith(".task.md")) {
       return false;
     }
     return this.managedLocations.some(({ location }) =>
@@ -149,7 +149,7 @@ export class IssueDecorationProvider
   provideFileDecoration(
     uri: vscodeType.Uri,
   ): vscodeType.FileDecoration | undefined {
-    if (!uri.fsPath.endsWith(".md")) {
+    if (!uri.fsPath.endsWith(".task.md")) {
       return undefined;
     }
 

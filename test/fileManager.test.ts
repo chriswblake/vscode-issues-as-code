@@ -209,7 +209,7 @@ suite("fileManager – serialize/read round-trip", () => {
   test("readIssueFile round-trips through writeIssueFile", async () => {
     const fm = makeFrontmatter();
     const body = "Issue body goes here.";
-    const filePath = path.join(tmpDir, "test-issue.md");
+    const filePath = path.join(tmpDir, "test-issue.task.md");
 
     await writeIssueFile(filePath, fm, body);
     const { frontmatter: read, body: readBody } = await readIssueFile(filePath);
@@ -224,7 +224,7 @@ suite("fileManager – serialize/read round-trip", () => {
   });
 
   test("readIssueFile handles missing optional fields gracefully", async () => {
-    const filePath = path.join(tmpDir, "minimal.md");
+    const filePath = path.join(tmpDir, "minimal.task.md");
     const content =
       "---\ngh-issues:\n  title: Minimal\n  state: open\n---\nBody text.\n";
     await fs.promises.writeFile(filePath, content, "utf8");
@@ -237,7 +237,7 @@ suite("fileManager – serialize/read round-trip", () => {
   });
 
   test("readIssueFile parses gh-projects namespace if present", async () => {
-    const filePath = path.join(tmpDir, "with-projects.md");
+    const filePath = path.join(tmpDir, "with-projects.task.md");
     const content =
       "---\ngh-issues:\n  title: T\n  state: open\ngh-projects:\n  title: T\n  field1: val1\n---\nbody\n";
     await fs.promises.writeFile(filePath, content, "utf8");

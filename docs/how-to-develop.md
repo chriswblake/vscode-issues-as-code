@@ -84,7 +84,7 @@ If cloning fails in Extension Development Host, that is expected for some setups
 | `src/extension.ts`     | Entry point — `activate` / `deactivate`                 |
 | `src/configManager.ts` | Configuration helpers, repo detection, `resolveQuery`   |
 | `src/githubClient.ts`  | Octokit wrapper — REST + GraphQL calls                  |
-| `src/fileManager.ts`   | Read / write / serialize `.md` issue files              |
+| `src/fileManager.ts`   | Read / write / serialize `.task.md` issue files              |
 | `src/syncManager.ts`   | Orchestration — watcher, debounce, pull timer, conflict |
 | `test/`                | Mocha unit and integration tests                        |
 | `docs/`                | Developer documentation                                 |

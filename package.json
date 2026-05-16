@@ -15,6 +15,18 @@
   ],
   "main": "./out/src/extension.js",
   "contributes": {
+    "languages": [
+      {
+        "id": "task-md",
+        "extensions": [
+          ".task.md"
+        ],
+        "icon": {
+          "light": "./icons/task-light.svg",
+          "dark": "./icons/task-dark.svg"
+        }
+      }
+    ],
     "commands": [
       {
         "command": "issuesAsCode.refresh",

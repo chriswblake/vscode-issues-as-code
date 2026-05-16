@@ -53,16 +53,16 @@ suite("syncManager – debounce timer behavior", () => {
     const calls: string[] = [];
     const debouncer = makeDebouncer(50, (p) => calls.push(p));
 
-    debouncer.debouncedPush("/issues/1.md");
-    debouncer.debouncedPush("/issues/1.md");
-    debouncer.debouncedPush("/issues/1.md");
+    debouncer.debouncedPush("/issues/1.task.md");
+    debouncer.debouncedPush("/issues/1.task.md");
+    debouncer.debouncedPush("/issues/1.task.md");
 
     // After delay fires, should have been called exactly once
     setTimeout(() => {
       debouncer.dispose();
       try {
         assert.strictEqual(calls.length, 1, "expected exactly 1 push");
-        assert.strictEqual(calls[0], "/issues/1.md");
+        assert.strictEqual(calls[0], "/issues/1.task.md");
         done();
       } catch (e) {
         done(e);
@@ -74,15 +74,15 @@ suite("syncManager – debounce timer behavior", () => {
     const calls: string[] = [];
     const debouncer = makeDebouncer(50, (p) => calls.push(p));
 
-    debouncer.debouncedPush("/issues/1.md");
-    debouncer.debouncedPush("/issues/2.md");
+    debouncer.debouncedPush("/issues/1.task.md");
+    debouncer.debouncedPush("/issues/2.task.md");
 
     setTimeout(() => {
       debouncer.dispose();
       try {
         assert.strictEqual(calls.length, 2);
-        assert.ok(calls.includes("/issues/1.md"));
-        assert.ok(calls.includes("/issues/2.md"));
+        assert.ok(calls.includes("/issues/1.task.md"));
+        assert.ok(calls.includes("/issues/2.task.md"));
         done();
       } catch (e) {
         done(e);
@@ -94,7 +94,7 @@ suite("syncManager – debounce timer behavior", () => {
     const calls: string[] = [];
     const debouncer = makeDebouncer(100, (p) => calls.push(p));
 
-    debouncer.debouncedPush("/issues/1.md");
+    debouncer.debouncedPush("/issues/1.task.md");
     // Dispose immediately before the timer fires
     debouncer.dispose();
 
@@ -172,7 +172,7 @@ suite("syncManager – new issue title inference", () => {
 
   test("prefers explicit frontmatter title when present", () => {
     const result = plugin.inferTitle(
-      "/issues/new.md",
+      "/issues/new.task.md",
       {
         "gh-issues": {
           title: "My explicit title",
@@ -188,7 +188,7 @@ suite("syncManager – new issue title inference", () => {
 
   test("uses first non-empty body line when frontmatter title is blank", () => {
     const result = plugin.inferTitle(
-      "/issues/new.md",
+      "/issues/new.task.md",
       {
         "gh-issues": { title: "   ", state: "open", labels: [], assignees: [] },
       },
@@ -199,7 +199,7 @@ suite("syncManager – new issue title inference", () => {
 
   test("strips markdown heading markers from body-derived title", () => {
     const result = plugin.inferTitle(
-      "/issues/new.md",
+      "/issues/new.task.md",
       { "gh-issues": { title: "", state: "open", labels: [], assignees: [] } },
       "# Heading Title\nBody",
     );
@@ -208,7 +208,7 @@ suite("syncManager – new issue title inference", () => {
 
   test("falls back to filename when title and body are empty", () => {
     const result = plugin.inferTitle(
-      "/issues/bug in step 3.md",
+      "/issues/bug in step 3.task.md",
       { "gh-issues": { title: "", state: "open", labels: [], assignees: [] } },
       "   \n  ",
     );
@@ -242,30 +242,30 @@ suite("syncManager – suppressedUris ref-counting", () => {
 
   test("file is suppressed after increment", () => {
     const tracker = makeSuppressionTracker();
-    tracker.suppress("/issues/1.md", 1);
-    assert.strictEqual(tracker.isSuppressed("/issues/1.md"), true);
+    tracker.suppress("/issues/1.task.md", 1);
+    assert.strictEqual(tracker.isSuppressed("/issues/1.task.md"), true);
   });
 
   test("file is unsuppressed after balanced increment/decrement", () => {
     const tracker = makeSuppressionTracker();
-    tracker.suppress("/issues/1.md", 1);
-    tracker.suppress("/issues/1.md", -1);
-    assert.strictEqual(tracker.isSuppressed("/issues/1.md"), false);
+    tracker.suppress("/issues/1.task.md", 1);
+    tracker.suppress("/issues/1.task.md", -1);
+    assert.strictEqual(tracker.isSuppressed("/issues/1.task.md"), false);
   });
 
   test("nested increments require matching decrements", () => {
     const tracker = makeSuppressionTracker();
-    tracker.suppress("/issues/1.md", 1);
-    tracker.suppress("/issues/1.md", 1);
-    tracker.suppress("/issues/1.md", -1);
+    tracker.suppress("/issues/1.task.md", 1);
+    tracker.suppress("/issues/1.task.md", 1);
+    tracker.suppress("/issues/1.task.md", -1);
     assert.strictEqual(
-      tracker.isSuppressed("/issues/1.md"),
+      tracker.isSuppressed("/issues/1.task.md"),
       true,
       "still suppressed",
     );
-    tracker.suppress("/issues/1.md", -1);
+    tracker.suppress("/issues/1.task.md", -1);
     assert.strictEqual(
-      tracker.isSuppressed("/issues/1.md"),
+      tracker.isSuppressed("/issues/1.task.md"),
       false,
       "now unsuppressed",
     );
@@ -273,14 +273,17 @@ suite("syncManager – suppressedUris ref-counting", () => {
 
   test("unsuppressed file is not in the map", () => {
     const tracker = makeSuppressionTracker();
-    assert.strictEqual(tracker.isSuppressed("/issues/never-touched.md"), false);
+    assert.strictEqual(
+      tracker.isSuppressed("/issues/never-touched.task.md"),
+      false,
+    );
   });
 
   test("different files have independent suppression", () => {
     const tracker = makeSuppressionTracker();
-    tracker.suppress("/issues/1.md", 1);
-    assert.strictEqual(tracker.isSuppressed("/issues/1.md"), true);
-    assert.strictEqual(tracker.isSuppressed("/issues/2.md"), false);
+    tracker.suppress("/issues/1.task.md", 1);
+    assert.strictEqual(tracker.isSuppressed("/issues/1.task.md"), true);
+    assert.strictEqual(tracker.isSuppressed("/issues/2.task.md"), false);
   });
 });
 
@@ -492,7 +495,7 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
-    const filePath = path.join(oldLocation, "1-issue.md");
+    const filePath = path.join(oldLocation, "1-issue.task.md");
     fs.writeFileSync(filePath, "content", "utf8");
     await stateManager.setSyncedAt(
       filePath,
@@ -519,7 +522,7 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
 
     // Assert – file exists at new location
     assert.ok(
-      fs.existsSync(path.join(newLocation, "1-issue.md")),
+      fs.existsSync(path.join(newLocation, "1-issue.task.md")),
       "file should be at new location",
     );
   });
@@ -535,7 +538,7 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
-    const filePath = path.join(oldLocation, "1-issue.md");
+    const filePath = path.join(oldLocation, "1-issue.task.md");
     fs.writeFileSync(filePath, "content", "utf8");
     await stateManager.setSyncedAt(
       filePath,
@@ -578,7 +581,7 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
-    const filePath = path.join(oldLocation, "1-issue.md");
+    const filePath = path.join(oldLocation, "1-issue.task.md");
     fs.writeFileSync(filePath, "content", "utf8");
     const remote = makeRemoteInfo({
       number: 1,
@@ -608,7 +611,7 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
     await reconcileTargetChanges(oldTargets, newTargets, stateManager);
 
     // Assert – state uses new file path and preserves synced_at
-    const newFilePath = path.join(newLocation, "1-issue.md");
+    const newFilePath = path.join(newLocation, "1-issue.task.md");
     assert.strictEqual(
       stateManager.getSyncedAt(newFilePath),
       "2024-03-01T00:00:00Z",
@@ -629,8 +632,8 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
     await stateManager.load();
 
     // State still points to old file path, but file is already at new location
-    const oldFilePath = path.join(oldLocation, "1-issue.md");
-    const newFilePath = path.join(newLocation, "1-issue.md");
+    const oldFilePath = path.join(oldLocation, "1-issue.task.md");
+    const newFilePath = path.join(newLocation, "1-issue.task.md");
     fs.writeFileSync(newFilePath, "content", "utf8");
     await stateManager.setSyncedAt(
       oldFilePath,
@@ -671,7 +674,7 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
-    const filePath = path.join(location, "1-issue.md");
+    const filePath = path.join(location, "1-issue.task.md");
     fs.writeFileSync(filePath, "content", "utf8");
     await stateManager.setSyncedAt(
       filePath,
@@ -710,7 +713,7 @@ suite("syncManager – reconcileTargetChanges (delete)", () => {
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
-    const filePath = path.join(location, "1-issue.md");
+    const filePath = path.join(location, "1-issue.task.md");
     fs.writeFileSync(filePath, "content", "utf8");
     await stateManager.setSyncedAt(
       filePath,
@@ -744,7 +747,7 @@ suite("syncManager – reconcileTargetChanges (delete)", () => {
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
-    const filePath = path.join(location, "1-issue.md");
+    const filePath = path.join(location, "1-issue.task.md");
     fs.writeFileSync(filePath, "content", "utf8");
     await stateManager.setSyncedAt(
       filePath,
@@ -780,7 +783,7 @@ suite("syncManager – reconcileTargetChanges (delete)", () => {
     await stateManager.load();
 
     // State points to a file that no longer exists (already deleted in a prior partial run)
-    const filePath = path.join(location, "1-issue.md");
+    const filePath = path.join(location, "1-issue.task.md");
     await stateManager.setSyncedAt(
       filePath,
       makeRemoteInfo({ number: 1 }),
@@ -817,8 +820,8 @@ suite("syncManager – reconcileTargetChanges (delete)", () => {
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
-    const keptFile = path.join(keptLocation, "1-kept.md");
-    const removedFile = path.join(removedLocation, "2-removed.md");
+    const keptFile = path.join(keptLocation, "1-kept.task.md");
+    const removedFile = path.join(removedLocation, "2-removed.task.md");
     fs.writeFileSync(keptFile, "kept", "utf8");
     fs.writeFileSync(removedFile, "removed", "utf8");
     await stateManager.setSyncedAt(
@@ -980,7 +983,7 @@ suite("syncManager – reconcileTargetChanges removes empty parent dirs", () => 
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
-    const filePath = path.join(oldLocation, "1-issue.md");
+    const filePath = path.join(oldLocation, "1-issue.task.md");
     fs.writeFileSync(filePath, "content", "utf8");
     await stateManager.setSyncedAt(
       filePath, //
@@ -1025,7 +1028,7 @@ suite("syncManager – reconcileTargetChanges removes empty parent dirs", () => 
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
-    const filePath = path.join(oldLocation, "1-issue.md");
+    const filePath = path.join(oldLocation, "1-issue.task.md");
     fs.writeFileSync(filePath, "content", "utf8");
     await stateManager.setSyncedAt(
       filePath, //
@@ -1034,7 +1037,7 @@ suite("syncManager – reconcileTargetChanges removes empty parent dirs", () => 
       "owner/repo/1",
     );
 
-    const keptFile = path.join(keptLocation, "2-issue.md");
+    const keptFile = path.join(keptLocation, "2-issue.task.md");
     fs.writeFileSync(keptFile, "content", "utf8");
     await stateManager.setSyncedAt(
       keptFile, //
@@ -1089,7 +1092,7 @@ suite("syncManager – reconcileTargetChanges removes empty parent dirs", () => 
     const stateManager = new SyncStateManager(statePath);
     await stateManager.load();
 
-    const filePath = path.join(location, "1-issue.md");
+    const filePath = path.join(location, "1-issue.task.md");
     fs.writeFileSync(filePath, "content", "utf8");
     await stateManager.setSyncedAt(
       filePath, //

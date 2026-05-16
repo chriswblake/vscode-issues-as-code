@@ -55,7 +55,7 @@ export class FrontmatterCompletionProvider
   ): Promise<vscodeType.CompletionItem[] | undefined> {
     const filePath = document.uri.fsPath;
 
-    if (!filePath.endsWith(".md")) {
+    if (!filePath.endsWith(".task.md")) {
       return undefined;
     }
 

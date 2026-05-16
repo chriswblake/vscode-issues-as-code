@@ -345,7 +345,7 @@ function registerProviders(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument((document) => {
       const filePath = document.uri.fsPath;
-      if (!filePath.endsWith(".md")) {
+      if (!filePath.endsWith(".task.md")) {
         return;
       }
       const manager = syncManagers.find((m) => m.ownsFile(filePath));
