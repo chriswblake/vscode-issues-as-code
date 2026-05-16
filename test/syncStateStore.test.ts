@@ -4,9 +4,9 @@ import * as os from "os";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import {
-  SyncStateManager,
+  SyncStateStore,
   type RemoteIssueInfo,
-} from "../src/syncStateManager";
+} from "../src/syncStateStore";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -34,11 +34,11 @@ function makeRemoteInfo(
 // Section 1: load – fresh and missing file
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – load", () => {
+suite("syncStateStore – load", () => {
   test("starts empty when no file exists", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
 
     // Act
     await manager.load();
@@ -53,7 +53,7 @@ suite("syncStateManager – load", () => {
   test("loads previously saved state from disk", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/1-test.task.md",
@@ -62,7 +62,7 @@ suite("syncStateManager – load", () => {
       "owner/repo/1",
     );
 
-    const manager2 = new SyncStateManager(statePath);
+    const manager2 = new SyncStateStore(statePath);
 
     // Act
     await manager2.load();
@@ -79,7 +79,7 @@ suite("syncStateManager – load", () => {
     const statePath = makeTempPath();
     fs.mkdirSync(path.dirname(statePath), { recursive: true });
     fs.writeFileSync(statePath, "{ bad yaml: [", "utf8");
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
 
     // Act
     await manager.load();
@@ -96,11 +96,11 @@ suite("syncStateManager – load", () => {
 // Section 2: getSyncedAt / setSyncedAt
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – getSyncedAt / setSyncedAt", () => {
+suite("syncStateStore – getSyncedAt / setSyncedAt", () => {
   test("returns undefined for a file path that has never been written", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
 
     // Act
@@ -113,7 +113,7 @@ suite("syncStateManager – getSyncedAt / setSyncedAt", () => {
   test("returns synced_at after writing an entry", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
 
     // Act
@@ -134,7 +134,7 @@ suite("syncStateManager – getSyncedAt / setSyncedAt", () => {
   test("two files under different locations are stored independently", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
 
     // Act
@@ -165,7 +165,7 @@ suite("syncStateManager – getSyncedAt / setSyncedAt", () => {
   test("persists entries across a load cycle", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/open/5-one.task.md",
@@ -180,7 +180,7 @@ suite("syncStateManager – getSyncedAt / setSyncedAt", () => {
       "owner/repo/7",
     );
 
-    const manager2 = new SyncStateManager(statePath);
+    const manager2 = new SyncStateStore(statePath);
 
     // Act
     await manager2.load();
@@ -199,7 +199,7 @@ suite("syncStateManager – getSyncedAt / setSyncedAt", () => {
   test("overwriting an entry updates synced_at", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/1-a.task.md",
@@ -228,11 +228,11 @@ suite("syncStateManager – getSyncedAt / setSyncedAt", () => {
 // Section 3: YAML file structure
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – YAML file structure", () => {
+suite("syncStateStore – YAML file structure", () => {
   test("written file is valid YAML", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
 
     // Act
@@ -251,7 +251,7 @@ suite("syncStateManager – YAML file structure", () => {
   test('written file has a top-level "files" key', async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
 
     // Act
@@ -281,7 +281,7 @@ suite("syncStateManager – YAML file structure", () => {
   test('written file has a top-level "pluginData.gh-issues" key with the issue record', async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     const remote = makeRemoteInfo({
       number: 42,
@@ -319,7 +319,7 @@ suite("syncStateManager – YAML file structure", () => {
   test("files section links back to gh-issues key and stores synced_at", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     const remote = makeRemoteInfo({
       number: 7,
@@ -354,7 +354,7 @@ suite("syncStateManager – YAML file structure", () => {
   test("persists gh-issues record details (state, closed_at, html_url)", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     const remote = makeRemoteInfo({
       number: 42,
@@ -396,7 +396,7 @@ suite("syncStateManager – YAML file structure", () => {
     // Arrange
     const base = fs.mkdtempSync(path.join(os.tmpdir(), "sync-state-mkdir-"));
     const statePath = path.join(base, "deeply", "nested", "sync-state.yml");
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
 
     // Act
@@ -416,11 +416,11 @@ suite("syncStateManager – YAML file structure", () => {
 // Section 4: deleteEntry
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – deleteEntry", () => {
+suite("syncStateStore – deleteEntry", () => {
   test("removes the entry for the given file path", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/1-a.task.md",
@@ -439,7 +439,7 @@ suite("syncStateManager – deleteEntry", () => {
   test("persists the deletion to disk", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/1-a.task.md",
@@ -449,7 +449,7 @@ suite("syncStateManager – deleteEntry", () => {
     );
     await manager.deleteEntry("/issues/1-a.task.md");
 
-    const manager2 = new SyncStateManager(statePath);
+    const manager2 = new SyncStateStore(statePath);
 
     // Act
     await manager2.load();
@@ -461,7 +461,7 @@ suite("syncStateManager – deleteEntry", () => {
   test("does not affect other entries", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/1-a.task.md",
@@ -489,7 +489,7 @@ suite("syncStateManager – deleteEntry", () => {
   test("is a no-op for a file path that does not exist", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/1-a.task.md",
@@ -513,11 +513,11 @@ suite("syncStateManager – deleteEntry", () => {
 // Section 5: getFilesUnderLocation
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – getFilesUnderLocation", () => {
+suite("syncStateStore – getFilesUnderLocation", () => {
   test("returns an empty map for a location with no entries", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
 
     // Act
@@ -530,7 +530,7 @@ suite("syncStateManager – getFilesUnderLocation", () => {
   test("returns all entries whose path is under the given location", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/open/1-a.task.md",
@@ -557,7 +557,7 @@ suite("syncStateManager – getFilesUnderLocation", () => {
   test("does not return entries from a sibling location", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/open/1-a.task.md",
@@ -584,7 +584,7 @@ suite("syncStateManager – getFilesUnderLocation", () => {
   test("does not match a location that is only a string prefix of the directory name", async () => {
     // Arrange – '/issues/open2/...' should NOT match getFilesUnderLocation('/issues/open')
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/open2/1-a.task.md",
@@ -605,11 +605,11 @@ suite("syncStateManager – getFilesUnderLocation", () => {
 // Section 6: removeFilesUnderLocation
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – removeFilesUnderLocation", () => {
+suite("syncStateStore – removeFilesUnderLocation", () => {
   test("removes all entries under the given location", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/open/1-a.task.md",
@@ -642,7 +642,7 @@ suite("syncStateManager – removeFilesUnderLocation", () => {
   test("persists removal to disk", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/open/1-a.task.md",
@@ -652,7 +652,7 @@ suite("syncStateManager – removeFilesUnderLocation", () => {
     );
     await manager.removeFilesUnderLocation("/issues/open");
 
-    const manager2 = new SyncStateManager(statePath);
+    const manager2 = new SyncStateStore(statePath);
 
     // Act
     await manager2.load();
@@ -667,7 +667,7 @@ suite("syncStateManager – removeFilesUnderLocation", () => {
   test("does not affect entries under other locations", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/open/1-a.task.md",
@@ -695,7 +695,7 @@ suite("syncStateManager – removeFilesUnderLocation", () => {
   test("is a no-op for a location that has no entries", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/open/1-a.task.md",
@@ -719,11 +719,11 @@ suite("syncStateManager – removeFilesUnderLocation", () => {
 // Section 7: getKnownFilePaths
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – getKnownFilePaths", () => {
+suite("syncStateStore – getKnownFilePaths", () => {
   test("returns empty array when no entries written", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
 
     // Act
@@ -736,7 +736,7 @@ suite("syncStateManager – getKnownFilePaths", () => {
   test("returns all written file paths", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/open/1-a.task.md",
@@ -763,7 +763,7 @@ suite("syncStateManager – getKnownFilePaths", () => {
   test("does not include deleted entries", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/open/1-a.task.md",
@@ -791,10 +791,10 @@ suite("syncStateManager – getKnownFilePaths", () => {
 // Section 8: watchForDeletion – recreate file when deleted
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – watchForDeletion", () => {
+suite("syncStateStore – watchForDeletion", () => {
   test("recreates the file when it is deleted", (done) => {
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
 
     // Arrange
     manager
@@ -830,7 +830,7 @@ suite("syncStateManager – watchForDeletion", () => {
 
   test("recreated file preserves in-memory state", (done) => {
     const statePath = makeTempPath();
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
 
     manager
       .load()
@@ -872,11 +872,11 @@ suite("syncStateManager – watchForDeletion", () => {
 // Section: updatePluginDataOnly
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – updatePluginDataOnly", () => {
+suite("syncStateStore – updatePluginDataOnly", () => {
   test("updatePluginDataOnly: updates pluginData without changing synced_at", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
     const filePath = "/issues/1.task.md";
     const remote1 = makeRemoteInfo({ updated_at: "2024-01-15T10:00:00Z" });
@@ -909,7 +909,7 @@ suite("syncStateManager – updatePluginDataOnly", () => {
   test("updatePluginDataOnly: stores last_modified_by when provided", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
     const filePath = "/issues/2.task.md";
     const remote1 = makeRemoteInfo();
@@ -937,11 +937,11 @@ suite("syncStateManager – updatePluginDataOnly", () => {
 // Section: hasPendingRemoteChanges
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – hasPendingRemoteChanges", () => {
+suite("syncStateStore – hasPendingRemoteChanges", () => {
   test("hasPendingRemoteChanges: returns false when synced_at equals pluginData.updated_at", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
     const filePath = "/issues/1.task.md";
     const remote = makeRemoteInfo({ updated_at: "2024-01-15T10:00:00Z" });
@@ -957,7 +957,7 @@ suite("syncStateManager – hasPendingRemoteChanges", () => {
   test("hasPendingRemoteChanges: returns true when pluginData.updated_at is newer than synced_at", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
     const filePath = "/issues/1.task.md";
     const remote1 = makeRemoteInfo({ updated_at: "2024-01-15T10:00:00Z" });
@@ -981,7 +981,7 @@ suite("syncStateManager – hasPendingRemoteChanges", () => {
   test("hasPendingRemoteChanges: returns false for unknown file", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
 
     // Act
@@ -999,11 +999,11 @@ suite("syncStateManager – hasPendingRemoteChanges", () => {
 // Section: findFileByPluginKeyUnderLocation
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – findFileByPluginKeyUnderLocation", () => {
+suite("syncStateStore – findFileByPluginKeyUnderLocation", () => {
   test("findFileByPluginKeyUnderLocation: returns file under matching location", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
 
     const filePath = "/workspace/.issues/target-a/7-fix-bug.task.md";
@@ -1024,7 +1024,7 @@ suite("syncStateManager – findFileByPluginKeyUnderLocation", () => {
   test("findFileByPluginKeyUnderLocation: returns undefined when file is in different location", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
 
     const filePath = "/workspace/.issues/target-a/7-fix-bug.task.md";
@@ -1047,7 +1047,7 @@ suite("syncStateManager – findFileByPluginKeyUnderLocation", () => {
 
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
 
     const fileA = "/workspace/.issues/target-a/7-fix-bug.task.md";
@@ -1078,11 +1078,11 @@ suite("syncStateManager – findFileByPluginKeyUnderLocation", () => {
 // Section: findAllFilesByPluginKey
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – findAllFilesByPluginKey", () => {
+suite("syncStateStore – findAllFilesByPluginKey", () => {
   test("findAllFilesByPluginKey: returns all files with matching key", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
 
     const fileA = "/workspace/.issues/target-a/7-fix-bug.task.md";
@@ -1103,7 +1103,7 @@ suite("syncStateManager – findAllFilesByPluginKey", () => {
   test("findAllFilesByPluginKey: returns single file when only one matches", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
 
     const fileA = "/workspace/.issues/target-a/7-fix-bug.task.md";
@@ -1120,7 +1120,7 @@ suite("syncStateManager – findAllFilesByPluginKey", () => {
   test("findAllFilesByPluginKey: returns empty when no files match", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
 
     // Act
@@ -1133,7 +1133,7 @@ suite("syncStateManager – findAllFilesByPluginKey", () => {
   test("findAllFilesByPluginKey: does not return files with different plugin id", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
 
     const fileA = "/workspace/.issues/target-a/7-fix-bug.task.md";
@@ -1152,11 +1152,11 @@ suite("syncStateManager – findAllFilesByPluginKey", () => {
 // Section: setLocalWrittenAt
 // ---------------------------------------------------------------------------
 
-suite("syncStateManager – setLocalWrittenAt", () => {
+suite("syncStateStore – setLocalWrittenAt", () => {
   test("setLocalWrittenAt: updates local_written_at without changing synced_at", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
 
     const filePath = "/workspace/.issues/target-a/7-fix-bug.task.md";
@@ -1183,7 +1183,7 @@ suite("syncStateManager – setLocalWrittenAt", () => {
   test("setLocalWrittenAt: no-op for unknown file path", async () => {
     // Arrange
     const statePath = makeTempPath();
-    const mgr = new SyncStateManager(statePath);
+    const mgr = new SyncStateStore(statePath);
     await mgr.load();
 
     // Act & Assert — should not throw

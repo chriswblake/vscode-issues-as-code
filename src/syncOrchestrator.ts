@@ -8,9 +8,19 @@ import {
   type IssueFrontmatter,
 } from "./fileManager";
 import { type SyncTarget, type IssueConfig } from "./configManager";
-import { SyncStateManager, type RemoteIssueInfo } from "./syncStateManager";
+import { SyncStateStore, type RemoteIssueInfo } from "./syncStateStore";
 import { type PrimarySyncPlugin, type PullItem } from "./pluginTypes";
 import { type RateLimitMonitor } from "./rateLimitMonitor";
+import {
+  classifyDiff, //
+  generateConflictContent,
+  hasConflictMarkers,
+} from "./diffHelpers";
+import { isLocalFileModified } from "./fileModification";
+import {
+  makeFileReadOnly, //
+  makeFileWritable,
+} from "./filePermissions";
 
 /** Result of a single target refresh operation. */
 export type RefreshResult =
@@ -58,7 +68,7 @@ export async function switchEditorToRenamedFile(
   await vs.window.showTextDocument(doc);
 }
 
-export class SyncManager {
+export class SyncOrchestrator {
   private suppressedUris = new Map<string, number>();
   private extensionWriteMtimeMs = new Map<string, number>();
   private debounceTimers = new Map<string, NodeJS.Timeout>();
@@ -76,7 +86,7 @@ export class SyncManager {
     readonly target: SyncTarget,
     private workspaceFolder: vscodeType.WorkspaceFolder,
     private context: vscodeType.ExtensionContext,
-    readonly stateManager: SyncStateManager,
+    readonly stateManager: SyncStateStore,
     private rateLimitMonitor?: RateLimitMonitor,
   ) {}
 
@@ -102,6 +112,19 @@ export class SyncManager {
   /** Display name for this target (relative path from workspace). */
   get displayName(): string {
     return path.relative(this.workspaceFolder.uri.fsPath, this.target.filesDir);
+  }
+
+  /** Returns the plugin config section for this target, or undefined if missing. */
+  private getPluginConfig(): Record<string, unknown> | undefined {
+    return this.target[this.plugin.id] as Record<string, unknown> | undefined;
+  }
+
+  /** Builds a PluginContext for passing to plugin methods. */
+  private buildPluginContext(): import("./pluginTypes").PluginContext {
+    return {
+      workspaceFolderPath: this.workspaceFolder.uri.fsPath,
+      stateManager: this.stateManager,
+    };
   }
 
   /** Register a listener for sync state changes. */
@@ -152,12 +175,12 @@ export class SyncManager {
     const intervalMs = this.config.autoFetchInterval * 60 * 1000;
     this._nextFetchTime = new Date(Date.now() + intervalMs);
     this.pullTimer = setInterval(() => {
-      void this.pullAll();
+      void this.refresh();
       this._nextFetchTime = new Date(Date.now() + intervalMs);
     }, intervalMs);
 
-    // Initial pull on activation
-    await this.pullAll();
+    // Initial refresh on activation
+    await this.refresh();
   }
 
   /** Stop: dispose watcher, clear timers. */
@@ -200,11 +223,6 @@ export class SyncManager {
     }
   }
 
-  /** Pull all remote items for this target via the plugin (fire-and-forget). */
-  async pullAll(): Promise<void> {
-    await this.refresh();
-  }
-
   /**
    * Pull all remote items and return a structured result.
    * Safe for both interactive (command) and background (timer) use.
@@ -245,17 +263,12 @@ export class SyncManager {
       return;
     }
 
-    const pluginConfig = this.target[this.plugin.id] as
-      | Record<string, unknown>
-      | undefined;
+    const pluginConfig = this.getPluginConfig();
     if (!pluginConfig) {
       return;
     }
 
-    const context = {
-      workspaceFolderPath: this.workspaceFolder.uri.fsPath,
-      stateManager: this.stateManager,
-    };
+    const context = this.buildPluginContext();
 
     let items = await this.plugin.pull(pluginConfig, context);
 
@@ -322,9 +335,7 @@ export class SyncManager {
 
       // Also validate that the entry still matches the target config.
       // This removes orphaned entries if the filter criteria no longer applies.
-      const pluginConfig = this.target[this.plugin.id] as
-        | Record<string, unknown>
-        | undefined;
+      const pluginConfig = this.getPluginConfig();
       if (
         pluginConfig &&
         !(await this.entryMatchesTargetConfig(filePath, pluginConfig))
@@ -428,9 +439,7 @@ export class SyncManager {
    * Updates pluginData so the CodeLens can show current remote status.
    */
   async fetchFile(filePath: string): Promise<void> {
-    const pluginConfig = this.target[this.plugin.id] as
-      | Record<string, unknown>
-      | undefined;
+    const pluginConfig = this.getPluginConfig();
     if (!pluginConfig) {
       return;
     }
@@ -441,10 +450,7 @@ export class SyncManager {
       return;
     }
 
-    const context = {
-      workspaceFolderPath: this.workspaceFolder.uri.fsPath,
-      stateManager: this.stateManager,
-    };
+    const context = this.buildPluginContext();
 
     try {
       const items = await this.plugin.pull(pluginConfig, context);
@@ -488,9 +494,7 @@ export class SyncManager {
    * Fetches the latest remote state and applies it locally (with conflict markers if needed).
    */
   async pullFile(filePath: string): Promise<void> {
-    const pluginConfig = this.target[this.plugin.id] as
-      | Record<string, unknown>
-      | undefined;
+    const pluginConfig = this.getPluginConfig();
     if (!pluginConfig) {
       return;
     }
@@ -501,10 +505,7 @@ export class SyncManager {
       return;
     }
 
-    const context = {
-      workspaceFolderPath: this.workspaceFolder.uri.fsPath,
-      stateManager: this.stateManager,
-    };
+    const context = this.buildPluginContext();
 
     const items = await this.plugin.pull(pluginConfig, context);
     const cloudItem = items.find((i) => i.remoteKey === pluginRef.key);
@@ -548,20 +549,8 @@ export class SyncManager {
     filePath: string,
     options: { interactive?: boolean } = {},
   ): Promise<string | undefined> {
-    // Rate limit pause check
-    if (this.rateLimitMonitor?.isPaused) {
-      if (options.interactive) {
-        const choice = await vscode().window.showWarningMessage(
-          `API rate limit is low (${this.rateLimitMonitor.pauseReason}). Push anyway?`,
-          "Push Anyway",
-          "Cancel",
-        );
-        if (choice !== "Push Anyway") {
-          return undefined;
-        }
-      } else {
-        return undefined;
-      }
+    if (!(await this.confirmRateLimitForPush(options.interactive))) {
+      return undefined;
     }
 
     const raw = await fs.promises.readFile(filePath, "utf8");
@@ -570,67 +559,38 @@ export class SyncManager {
     }
 
     const { frontmatter, body } = await readIssueFile(filePath);
-    const pluginConfig = this.target[this.plugin.id] as
-      | Record<string, unknown>
-      | undefined;
+    const pluginConfig = this.getPluginConfig();
     if (!pluginConfig) {
       return undefined;
     }
 
     const stateEntry = this.stateManager.getEntry(filePath);
     const remoteId = this.plugin.getRemoteId(frontmatter, stateEntry);
-    const context = {
-      workspaceFolderPath: this.workspaceFolder.uri.fsPath,
-      stateManager: this.stateManager,
-    };
+    const context = this.buildPluginContext();
 
+    // For existing items, check for remote conflicts before pushing
     let existingRemoteKey: string | undefined;
     if (remoteId !== undefined) {
-      // Existing item — check for conflicts before pushing
       existingRemoteKey = this.plugin.getRemoteKey(
         frontmatter,
         pluginConfig,
         stateEntry,
       );
-
-      // Re-pull to get latest remote state for conflict check
-      const items = await this.plugin.pull(pluginConfig, context);
-      const cloudItem = existingRemoteKey
-        ? items.find((i) => i.remoteKey === existingRemoteKey)
-        : undefined;
-
-      if (
-        cloudItem &&
-        isConflict(
-          cloudItem.remoteInfo.updated_at,
-          this.stateManager.getSyncedAt(filePath),
-        )
-      ) {
-        // Update plugin data so CodeLens shows "Pull Changes"
-        await this.stateManager.updatePluginDataOnly(
-          filePath,
-          cloudItem.remoteInfo,
-          this.plugin.id,
-          cloudItem.remoteKey,
-        );
-
-        if (options.interactive) {
-          void vscode().window.showWarningMessage(
-            `Cannot push: the remote has been updated since your last sync. Please pull remote changes first.`,
-          );
-        }
+      const blocked = await this.stopPushIfRemoteChanged(
+        filePath,
+        pluginConfig,
+        context,
+        existingRemoteKey,
+        options.interactive,
+      );
+      if (blocked) {
         return undefined;
       }
     }
 
     // Infer title for new files
     if (remoteId === undefined) {
-      const title = this.plugin.inferTitle(filePath, frontmatter, body);
-      if (frontmatter[this.plugin.id]) {
-        (frontmatter[this.plugin.id] as Record<string, unknown>).title = title;
-      } else {
-        (frontmatter as Record<string, unknown>)[this.plugin.id] = { title };
-      }
+      this.setInferredTitle(filePath, frontmatter, body);
     }
 
     const result = await this.plugin.push(
@@ -641,7 +601,89 @@ export class SyncManager {
       existingRemoteKey,
     );
 
-    // Write updated file with server-assigned data
+    return this.applyPushResult(filePath, frontmatter, pluginConfig, result);
+  }
+
+  /** Returns false if rate limit blocks the push. Shows confirmation when interactive. */
+  private async confirmRateLimitForPush(
+    interactive?: boolean,
+  ): Promise<boolean> {
+    if (!this.rateLimitMonitor?.isPaused) {
+      return true;
+    }
+    if (interactive) {
+      const choice = await vscode().window.showWarningMessage(
+        `API rate limit is low (${this.rateLimitMonitor.pauseReason}). Push anyway?`,
+        "Push Anyway",
+        "Cancel",
+      );
+      return choice === "Push Anyway";
+    }
+    return false;
+  }
+
+  /**
+   * Checks if the remote has changed since last sync and blocks the push if so.
+   * Updates plugin data so CodeLens shows "Pull Changes" when blocked.
+   */
+  private async stopPushIfRemoteChanged(
+    filePath: string,
+    pluginConfig: Record<string, unknown>,
+    context: import("./pluginTypes").PluginContext,
+    existingRemoteKey: string | undefined,
+    interactive?: boolean,
+  ): Promise<boolean> {
+    const items = await this.plugin.pull(pluginConfig, context);
+    const cloudItem = existingRemoteKey
+      ? items.find((i) => i.remoteKey === existingRemoteKey)
+      : undefined;
+
+    if (
+      !cloudItem ||
+      !isConflict(
+        cloudItem.remoteInfo.updated_at,
+        this.stateManager.getSyncedAt(filePath),
+      )
+    ) {
+      return false;
+    }
+
+    await this.stateManager.updatePluginDataOnly(
+      filePath,
+      cloudItem.remoteInfo,
+      this.plugin.id,
+      cloudItem.remoteKey,
+    );
+
+    if (interactive) {
+      void vscode().window.showWarningMessage(
+        `Cannot push: the remote has been updated since your last sync. Please pull remote changes first.`,
+      );
+    }
+    return true;
+  }
+
+  /** Sets an inferred title on the frontmatter for new files. */
+  private setInferredTitle(
+    filePath: string,
+    frontmatter: IssueFrontmatter,
+    body: string,
+  ): void {
+    const title = this.plugin.inferTitle(filePath, frontmatter, body);
+    if (frontmatter[this.plugin.id]) {
+      (frontmatter[this.plugin.id] as Record<string, unknown>).title = title;
+    } else {
+      (frontmatter as Record<string, unknown>)[this.plugin.id] = { title };
+    }
+  }
+
+  /** Writes the push result to disk, cleans up old files, and validates against target config. */
+  private async applyPushResult(
+    filePath: string,
+    frontmatter: IssueFrontmatter,
+    pluginConfig: Record<string, unknown>,
+    result: import("./pluginTypes").PushResult,
+  ): Promise<string | undefined> {
     const naming = this.target.naming ?? this.plugin.defaultFileName;
     const expectedFileName =
       this.plugin.buildFileName(result.namingTokens, naming) + ".task.md";
@@ -664,15 +706,13 @@ export class SyncManager {
       await this.unlinkSuppressed(filePath);
     }
 
-    // Post-push validation: remove the file if it no longer matches the target query
-    // (e.g. user closed an issue but the target filters for state: open)
+    // Remove file if it no longer matches the target query (e.g. closed issue in open-only target)
     if (!(await this.entryMatchesTargetConfig(expectedPath, pluginConfig))) {
       await this.closeEditorTab(expectedPath);
       await this.unlinkSuppressed(expectedPath);
       return undefined;
     }
 
-    // Notify listeners so sibling copies in other targets can be updated
     this.notifyPush({
       filePath: expectedPath,
       remoteKey: result.remoteKey,
@@ -999,12 +1039,7 @@ export class SyncManager {
   }
 }
 
-/** Pure helper: returns true if the file content contains unresolved merge conflict markers. */
-export function hasConflictMarkers(content: string): boolean {
-  return /^<{7} /m.test(content);
-}
-
-/** Pure helper: returns true if cloud version is newer than local synced_at. */
+/** Returns true if cloud version is newer than local synced_at. */
 export function isConflict(
   cloudUpdatedAt: string,
   syncedAt: string | undefined,
@@ -1013,26 +1048,6 @@ export function isConflict(
     return false;
   }
   return new Date(cloudUpdatedAt) > new Date(syncedAt);
-}
-
-/**
- * Returns true if the saved file has been modified since the extension last wrote it.
- * Provides a 1 second tolerance for filesystem timestamp differences.
- */
-export function isLocalFileModified(
-  filePath: string,
-  stateEntry: { local_written_at: string } | undefined,
-): boolean {
-  if (!stateEntry) {
-    return false;
-  }
-  try {
-    const stat = fs.statSync(filePath);
-    const localWrittenAt = new Date(stateEntry.local_written_at).getTime();
-    return stat.mtimeMs > localWrittenAt + 1000;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -1045,296 +1060,4 @@ export function isExtensionWriteEvent(
 ): boolean {
   const MTIME_JITTER_MS = 1;
   return eventMtimeMs <= lastExtensionWriteMtimeMs + MTIME_JITTER_MS;
-}
-
-// Diff helpers
-
-type DiffLine = { type: "equal" | "added" | "removed"; line: string };
-
-/** LCS-based line diff. 'added' = in cloud only, 'removed' = in local only. */
-export function computeLineDiff(
-  localLines: string[],
-  cloudLines: string[],
-): DiffLine[] {
-  const m = localLines.length;
-  const n = cloudLines.length;
-
-  const dp: number[][] = Array.from({ length: m + 1 }, () =>
-    new Array(n + 1).fill(0),
-  );
-  for (let i = m - 1; i >= 0; i--) {
-    for (let j = n - 1; j >= 0; j--) {
-      if (localLines[i] === cloudLines[j]) {
-        dp[i][j] = 1 + dp[i + 1][j + 1];
-      } else {
-        dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
-      }
-    }
-  }
-
-  const result: DiffLine[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < m && j < n) {
-    if (localLines[i] === cloudLines[j]) {
-      result.push({ type: "equal", line: localLines[i] });
-      i++;
-      j++;
-    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
-      result.push({ type: "removed", line: localLines[i] });
-      i++;
-    } else {
-      result.push({ type: "added", line: cloudLines[j] });
-      j++;
-    }
-  }
-  while (i < m) {
-    result.push({ type: "removed", line: localLines[i++] });
-  }
-  while (j < n) {
-    result.push({ type: "added", line: cloudLines[j++] });
-  }
-
-  return result;
-}
-
-/** Returns whether a cloud→local change is additions-only, removals-only, mixed, or identical. */
-export function classifyDiff(
-  localContent: string,
-  cloudContent: string,
-): "identical" | "additions-only" | "removals-only" | "mixed" {
-  const diff = computeLineDiff(
-    localContent.split(/\r?\n/), //
-    cloudContent.split(/\r?\n/),
-  );
-
-  let hasAdditions = false;
-  let hasRemovals = false;
-  for (const item of diff) {
-    if (item.type === "added") hasAdditions = true;
-    if (item.type === "removed") hasRemovals = true;
-  }
-
-  if (!hasAdditions && !hasRemovals) return "identical";
-  if (hasAdditions && !hasRemovals) return "additions-only";
-  if (!hasAdditions && hasRemovals) return "removals-only";
-  return "mixed";
-}
-
-/** Produces file content with standard merge conflict markers for all diff hunks. */
-export function generateConflictContent(
-  localContent: string,
-  cloudContent: string,
-): string {
-  const diff = computeLineDiff(
-    localContent.split(/\r?\n/), //
-    cloudContent.split(/\r?\n/),
-  );
-
-  const output: string[] = [];
-  let i = 0;
-  while (i < diff.length) {
-    if (diff[i].type === "equal") {
-      output.push(diff[i].line);
-      i++;
-    } else {
-      // Collect a contiguous conflict hunk
-      const localSection: string[] = [];
-      const cloudSection: string[] = [];
-      while (i < diff.length && diff[i].type !== "equal") {
-        if (diff[i].type === "removed") localSection.push(diff[i].line);
-        else cloudSection.push(diff[i].line);
-        i++;
-      }
-      output.push("<<<<<<< Local");
-      output.push(...localSection);
-      output.push("=======");
-      output.push(...cloudSection);
-      output.push(">>>>>>> Remote");
-    }
-  }
-
-  return output.join("\n");
-}
-
-// ---------------------------------------------------------------------------
-// Target reconciliation (location changes and removals)
-// ---------------------------------------------------------------------------
-
-/** Identity key for a sync target: based on plugin configuration so changing filesDir triggers a move. */
-function targetIdentity(target: SyncTarget): string {
-  // Find plugin config keys (anything that's not a core SyncTarget field)
-  const coreFields = new Set(["filesDir", "naming"]);
-  for (const key of Object.keys(target)) {
-    if (coreFields.has(key)) {
-      continue;
-    }
-    const pluginConfig = target[key];
-    if (pluginConfig && typeof pluginConfig === "object") {
-      return `${key}||${JSON.stringify(pluginConfig)}`;
-    }
-  }
-  return `filesDir||${target.filesDir}`;
-}
-
-/**
- * Reconciles the file system and sync state when sync targets change between config reloads.
- *
- * - Moved targets (same plugin config, different filesDir): issue files are moved to the new
- *   location and the sync state is updated so no re-download is triggered.
- * - Removed targets (not present in new config): issue files are deleted and their state
- *   entries are removed.
- *
- * Safe from mid-process corruption: a crash leaves orphaned files at worst (no data loss).
- */
-export async function reconcileTargetChanges(
-  oldTargets: SyncTarget[], //
-  newTargets: SyncTarget[],
-  stateManager: SyncStateManager,
-): Promise<void> {
-  const oldByIdentity = new Map(oldTargets.map((t) => [targetIdentity(t), t]));
-  const newByIdentity = new Map(newTargets.map((t) => [targetIdentity(t), t]));
-
-  // Collect filesDir paths for targets that remain active after reconciliation
-  const activeFilesDirs = newTargets.map((t) => path.resolve(t.filesDir));
-
-  // Move files for targets whose filesDir changed
-  for (const [id, oldTarget] of oldByIdentity) {
-    const newTarget = newByIdentity.get(id);
-    if (newTarget && newTarget.filesDir !== oldTarget.filesDir) {
-      await moveTargetFiles(oldTarget, newTarget, stateManager);
-      await removeEmptyParentDirs(oldTarget.filesDir, activeFilesDirs);
-    }
-  }
-
-  // Delete files for targets that were removed entirely
-  for (const [id, oldTarget] of oldByIdentity) {
-    if (!newByIdentity.has(id)) {
-      await deleteTargetFiles(oldTarget, stateManager);
-      await removeEmptyParentDirs(oldTarget.filesDir, activeFilesDirs);
-    }
-  }
-}
-
-/** Moves all tracked issue files from the old target location to the new one, updating state. */
-async function moveTargetFiles(
-  oldTarget: SyncTarget, //
-  newTarget: SyncTarget,
-  stateManager: SyncStateManager,
-): Promise<void> {
-  const entries = stateManager.getFilesUnderLocation(oldTarget.filesDir);
-  if (entries.size === 0) {
-    return;
-  }
-
-  await fs.promises.mkdir(newTarget.filesDir, { recursive: true });
-
-  for (const [oldFilePath, entry] of entries) {
-    const newFilePath = path.join(
-      newTarget.filesDir,
-      path.basename(oldFilePath),
-    );
-
-    // Copy to new location; source may already be gone if this is crash recovery
-    try {
-      await fs.promises.copyFile(oldFilePath, newFilePath);
-    } catch {
-      /* source already gone — state cleanup still proceeds */
-    }
-
-    await stateManager.setSyncedAtEntry(newFilePath, entry);
-    await stateManager.deleteEntry(oldFilePath);
-
-    try {
-      await fs.promises.unlink(oldFilePath);
-    } catch {
-      /* already gone */
-    }
-  }
-}
-
-/** Deletes all tracked issue files under the old target location, and removes their state entries. */
-async function deleteTargetFiles(
-  oldTarget: SyncTarget, //
-  stateManager: SyncStateManager,
-): Promise<void> {
-  const entries = stateManager.getFilesUnderLocation(oldTarget.filesDir);
-
-  for (const [filePath] of entries) {
-    try {
-      // Make read-only files writable before deletion
-      if (oldTarget.readOnly) {
-        await makeFileWritable(filePath);
-      }
-      await fs.promises.unlink(filePath);
-    } catch {
-      /* already gone */
-    }
-  }
-
-  await stateManager.removeFilesUnderLocation(oldTarget.filesDir);
-}
-
-/**
- * Removes the given directory and any empty parent directories, stopping when a parent
- * is an ancestor of any active sync target path. This prevents removing directories
- * that are still in use by other targets.
- */
-export async function removeEmptyParentDirs(
-  dirPath: string, //
-  activeFilesDirs: string[] = [],
-): Promise<void> {
-  let current = path.resolve(dirPath);
-  const resolvedActive = activeFilesDirs.map((d) => path.resolve(d));
-
-  while (current !== path.dirname(current)) {
-    // Stop if this directory is an ancestor of (or equal to) any active target
-    if (isAncestorOfAny(current, resolvedActive)) {
-      break;
-    }
-
-    try {
-      await fs.promises.rmdir(current);
-    } catch {
-      // Directory not empty or already gone — stop climbing
-      break;
-    }
-
-    current = path.dirname(current);
-  }
-}
-
-/** Returns true if `dir` is an ancestor of, or equal to, any path in `paths`. */
-function isAncestorOfAny(dir: string, paths: string[]): boolean {
-  return paths.some((p) => p === dir || p.startsWith(dir + path.sep));
-}
-
-// ---------------------------------------------------------------------------
-// File permission helpers (cross-platform read-only enforcement)
-// ---------------------------------------------------------------------------
-
-/**
- * Makes a file read-only on disk to discourage accidental edits.
- * Uses mode 0o444 (read for owner/group/others, no write).
- * Silently ignores errors (e.g. file does not exist yet).
- */
-async function makeFileReadOnly(filePath: string): Promise<void> {
-  try {
-    await fs.promises.chmod(filePath, 0o444);
-  } catch {
-    /* ignore — file may not exist or platform may not support */
-  }
-}
-
-/**
- * Restores write permission on a file so the extension can overwrite it.
- * Uses mode 0o644 (owner read/write, group/others read).
- * Silently ignores errors.
- */
-async function makeFileWritable(filePath: string): Promise<void> {
-  try {
-    await fs.promises.chmod(filePath, 0o644);
-  } catch {
-    /* ignore — file may not exist */
-  }
 }

@@ -8,23 +8,25 @@ import {
   type AutoPushMode,
 } from "./configManager";
 import {
-  SyncManager,
-  reconcileTargetChanges,
+  SyncOrchestrator,
   switchEditorToRenamedFile,
-  hasConflictMarkers,
   type RefreshResult,
   type PushEventInfo,
-} from "./syncManager";
+} from "./syncOrchestrator";
+import { hasConflictMarkers } from "./diffHelpers";
 import {
-  SyncStateManager, //
+  reconcileTargetChanges, //
+} from "./targetReconciliation";
+import {
+  SyncStateStore, //
   type RemoteIssueInfo,
-} from "./syncStateManager";
+} from "./syncStateStore";
 import {
   readIssueFile, //
   type IssueFrontmatter,
 } from "./fileManager";
-import { IssueDecorationProvider } from "./issueDecorationProvider";
-import { PublishCodeLensProvider } from "./publishCodeLensProvider";
+import { FileDecorator } from "./fileDecorator";
+import { SyncCodeLensProvider } from "./syncCodeLensProvider";
 import { RateLimitMonitor } from "./rateLimitMonitor";
 import {
   StatusBarManager,
@@ -43,9 +45,9 @@ import {
 import { getPrimaryPlugin, getPrimaryPluginIds } from "./pluginRegistry";
 import type { PrimarySyncPlugin, ManagedPluginTarget } from "./pluginTypes";
 
-const syncManagers: SyncManager[] = [];
-let decorationProvider: IssueDecorationProvider | undefined;
-let codeLensProvider: PublishCodeLensProvider | undefined;
+const syncManagers: SyncOrchestrator[] = [];
+let decorationProvider: FileDecorator | undefined;
+let codeLensProvider: SyncCodeLensProvider | undefined;
 let rateLimitMonitor: RateLimitMonitor | undefined;
 let statusBarManager: StatusBarManager | undefined;
 const syncChangeUnsubscribers: (() => void)[] = [];
@@ -72,7 +74,7 @@ function getAutoPushMode(filePath: string): AutoPushMode | undefined {
  */
 async function propagateToSiblings(
   info: PushEventInfo,
-  sourceManager: SyncManager,
+  sourceManager: SyncOrchestrator,
 ): Promise<void> {
   const siblingPaths = sourceManager.stateManager.findAllFilesByPluginKey(
     info.pluginId,
@@ -136,7 +138,7 @@ async function propagateToSiblings(
  */
 async function propagateLocalEditsToSiblings(
   filePath: string,
-  sourceManager: SyncManager,
+  sourceManager: SyncOrchestrator,
 ): Promise<void> {
   const remoteKey = sourceManager.stateManager.getRemoteKey(
     filePath,
@@ -202,13 +204,13 @@ export async function activate(
 
 function registerProviders(context: vscode.ExtensionContext): void {
   // File decoration provider (sync state badges)
-  decorationProvider = new IssueDecorationProvider();
+  decorationProvider = new FileDecorator();
   context.subscriptions.push(
     vscode.window.registerFileDecorationProvider(decorationProvider),
   );
 
   // CodeLens provider for unpublished files
-  codeLensProvider = new PublishCodeLensProvider();
+  codeLensProvider = new SyncCodeLensProvider();
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
       [
@@ -381,7 +383,7 @@ function registerCommands(context: vscode.ExtensionContext): void {
       }
 
       // Select which targets to refresh
-      let managersToRefresh: SyncManager[];
+      let managersToRefresh: SyncOrchestrator[];
       if (syncManagers.length === 1) {
         managersToRefresh = syncManagers;
       } else {
@@ -576,13 +578,13 @@ function getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
 }
 
 /**
- * Resolves the target file and its owning SyncManager from a command invocation.
+ * Resolves the target file and its owning SyncOrchestrator from a command invocation.
  * Shows a warning and returns null when no file is open or the file is unmanaged.
  */
 function resolveFileManager(
   uri: vscode.Uri | undefined, //
   action: string,
-): { filePath: string; manager: SyncManager } | null {
+): { filePath: string; manager: SyncOrchestrator } | null {
   const targetUri = uri ?? vscode.window.activeTextEditor?.document.uri;
   if (!targetUri) {
     void vscode.window.showWarningMessage(`No file is open to ${action}.`);
@@ -649,7 +651,7 @@ async function doReinitializeAllFolders(
   // Capture old targets and the shared state manager per folder before tearing down
   const oldStateByFolder = new Map<
     string,
-    { targets: SyncTarget[]; stateManager: SyncStateManager }
+    { targets: SyncTarget[]; stateManager: SyncStateStore }
   >();
   for (const manager of syncManagers) {
     const fsPath = manager.workspaceFolderFsPath;
@@ -727,30 +729,69 @@ async function activateFolder(
 ): Promise<void> {
   const config = getConfig(folder.uri.fsPath, folder);
 
-  // Use explicitly configured targets; fall back to persisting defaults
-  let targets = config.syncTargets;
-  if (targets.length === 0) {
-    // Persist open-issues target to workspace settings for first-time setup
-    const persisted = await persistDefaultTargets(folder);
-    if (persisted) {
-      // Re-read config to get resolved targets with absolute paths
-      const refreshed = getConfig(folder.uri.fsPath, folder);
-      targets = refreshed.syncTargets;
-    }
-    if (targets.length === 0) {
-      // Fall back to ephemeral detected defaults if persistence wasn't possible
-      const detected = await detectDefaultTargets(folder);
-      if (!detected) {
-        return;
-      }
-      targets = detected;
+  const targets = await resolveActiveTargets(folder, config);
+  if (!targets) {
+    return;
+  }
+
+  await ensureGitignoreEntries(folder, config, targets);
+  rateLimitMonitor?.setThreshold(config.rateLimitThreshold);
+
+  const stateManager = await createLoadedStateManager(config, context);
+  await removeOrphanedStateEntries(stateManager, targets);
+
+  if (!(await ensurePluginsInitialized())) {
+    return;
+  }
+
+  await startManagersForTargets(
+    targets, //
+    config,
+    folder,
+    context,
+    stateManager,
+  );
+
+  updateDecorationProvider(config);
+  updateCodeLensProvider();
+  notifyTargetChangeListeners();
+  statusBarManager?.setVisible(config.showStatusBarIcon);
+  refreshStatusBarSummary();
+}
+
+// ---------------------------------------------------------------------------
+// activateFolder helpers
+// ---------------------------------------------------------------------------
+
+/** Resolves sync targets from config, persisted defaults, or detected defaults. */
+async function resolveActiveTargets(
+  folder: vscode.WorkspaceFolder,
+  config: import("./configManager").IssueConfig,
+): Promise<SyncTarget[] | null> {
+  if (config.syncTargets.length > 0) {
+    return config.syncTargets;
+  }
+
+  // Persist open-issues target to workspace settings for first-time setup
+  const persisted = await persistDefaultTargets(folder);
+  if (persisted) {
+    const refreshed = getConfig(folder.uri.fsPath, folder);
+    if (refreshed.syncTargets.length > 0) {
+      return refreshed.syncTargets;
     }
   }
 
-  // Always gitignore the sync state file
-  await ensureGitignore(folder.uri.fsPath, [config.syncStatePath]);
+  // Fall back to ephemeral detected defaults
+  return detectDefaultTargets(folder);
+}
 
-  // Optionally gitignore sync target folders
+/** Adds sync state file and target folders to .gitignore as needed. */
+async function ensureGitignoreEntries(
+  folder: vscode.WorkspaceFolder,
+  config: import("./configManager").IssueConfig,
+  targets: SyncTarget[],
+): Promise<void> {
+  await ensureGitignore(folder.uri.fsPath, [config.syncStatePath]);
   if (config.keepGitIgnoreUpdated) {
     await ensureGitignore(
       folder.uri.fsPath,
@@ -758,24 +799,33 @@ async function activateFolder(
     );
   }
   await applyFilesExclude(folder, config);
+}
 
-  // Update rate limit threshold from this folder's config
-  rateLimitMonitor?.setThreshold(config.rateLimitThreshold);
-
-  const stateManager = new SyncStateManager(config.syncStatePath);
+/** Creates a SyncStateStore, loads from disk, and wires up decoration refresh. */
+async function createLoadedStateManager(
+  config: import("./configManager").IssueConfig,
+  context: vscode.ExtensionContext,
+): Promise<SyncStateStore> {
+  const stateManager = new SyncStateStore(config.syncStatePath);
   await stateManager.load();
   stateManager.watchForDeletion();
   context.subscriptions.push({ dispose: () => stateManager.dispose() });
 
-  // Refresh file decorations and clear dirty state when sync confirms a match
-  const unsubscribeDecorations = stateManager.onDidChange((filePath) => {
+  const unsubscribe = stateManager.onDidChange((filePath) => {
     decorationProvider?.clearDirty(filePath);
     decorationProvider?.refresh(filePath);
     codeLensProvider?.refresh();
   });
-  context.subscriptions.push({ dispose: unsubscribeDecorations });
+  context.subscriptions.push({ dispose: unsubscribe });
 
-  // Remove state entries for files no longer under any active target location
+  return stateManager;
+}
+
+/** Removes state entries for files no longer under any active target. */
+async function removeOrphanedStateEntries(
+  stateManager: SyncStateStore,
+  targets: SyncTarget[],
+): Promise<void> {
   const activeLocations = new Set(targets.map((t) => t.filesDir));
   for (const filePath of stateManager.getKnownFilePaths()) {
     const isActive = [...activeLocations].some((loc) =>
@@ -785,16 +835,29 @@ async function activateFolder(
       await stateManager.deleteEntry(filePath);
     }
   }
+}
 
-  // Ensure plugins are initialized (authenticate once per activation)
-  if (getPrimaryPluginIds().length === 0) {
-    const initialized = await initializePlugins();
-    if (initialized.length === 0) {
-      console.warn("[issuesAsCode] No plugins could be initialized");
-      return;
-    }
+/** Ensures at least one plugin is initialized. Returns false if none could initialize. */
+async function ensurePluginsInitialized(): Promise<boolean> {
+  if (getPrimaryPluginIds().length > 0) {
+    return true;
   }
+  const initialized = await initializePlugins();
+  if (initialized.length === 0) {
+    console.warn("[issuesAsCode] No plugins could be initialized");
+    return false;
+  }
+  return true;
+}
 
+/** Creates and starts a SyncOrchestrator for each target, subscribing to events. */
+async function startManagersForTargets(
+  targets: SyncTarget[],
+  config: import("./configManager").IssueConfig,
+  folder: vscode.WorkspaceFolder,
+  context: vscode.ExtensionContext,
+  stateManager: SyncStateStore,
+): Promise<void> {
   for (const target of targets) {
     const plugin = resolvePluginForTarget(target);
     if (!plugin) {
@@ -804,7 +867,7 @@ async function activateFolder(
       continue;
     }
 
-    const manager = new SyncManager(
+    const manager = new SyncOrchestrator(
       plugin,
       config,
       target,
@@ -817,43 +880,51 @@ async function activateFolder(
     syncManagers.push(manager);
     context.subscriptions.push({ dispose: () => manager.dispose() });
 
-    // Subscribe to sync changes for status bar updates
     const unsubscribeSyncChange = manager.onSyncChange(() => {
       refreshStatusBarSummary();
     });
     syncChangeUnsubscribers.push(unsubscribeSyncChange);
 
-    // Subscribe to push events for cross-target sibling propagation
     const unsubscribePush = manager.onDidPush((info) => {
       void propagateToSiblings(info, manager);
     });
     pushChangeUnsubscribers.push(unsubscribePush);
   }
+}
 
-  // Update decoration provider with all active managed locations and config
-  if (decorationProvider) {
-    const locations = syncManagers.map((m) => ({
-      location: m.target.filesDir,
-      pluginId: m.plugin.id,
-      stateManager: m.stateManager,
-      readOnly: m.target.readOnly,
-    }));
-    decorationProvider.update(locations, config.showSyncIcons);
+/** Updates the decoration provider with all active managed locations and config. */
+function updateDecorationProvider(
+  config: import("./configManager").IssueConfig,
+): void {
+  if (!decorationProvider) {
+    return;
   }
+  const locations = syncManagers.map((m) => ({
+    location: m.target.filesDir,
+    pluginId: m.plugin.id,
+    stateManager: m.stateManager,
+    readOnly: m.target.readOnly,
+  }));
+  decorationProvider.update(locations, config.showSyncIcons);
+}
 
-  // Update CodeLens provider with managed targets
-  if (codeLensProvider) {
-    const codeLensTargets = syncManagers.map((m) => ({
-      filesDir: m.target.filesDir,
-      pluginId: m.plugin.id,
-      displayName: m.plugin.displayName,
-      stateManager: m.stateManager,
-      readOnly: m.target.readOnly,
-    }));
-    codeLensProvider.update(codeLensTargets);
+/** Updates the CodeLens provider with managed targets. */
+function updateCodeLensProvider(): void {
+  if (!codeLensProvider) {
+    return;
   }
+  const codeLensTargets = syncManagers.map((m) => ({
+    filesDir: m.target.filesDir,
+    pluginId: m.plugin.id,
+    displayName: m.plugin.displayName,
+    stateManager: m.stateManager,
+    readOnly: m.target.readOnly,
+  }));
+  codeLensProvider.update(codeLensTargets);
+}
 
-  // Notify plugins that targets have changed
+/** Notifies registered listeners that targets have changed. */
+function notifyTargetChangeListeners(): void {
   for (const listener of targetChangeListeners) {
     try {
       listener();
@@ -861,10 +932,6 @@ async function activateFolder(
       // Ignore listener errors
     }
   }
-
-  // Update status bar visibility and summary
-  statusBarManager?.setVisible(config.showStatusBarIcon);
-  refreshStatusBarSummary();
 }
 
 /** Returns current managed targets for plugin provider consumption. */

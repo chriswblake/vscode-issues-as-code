@@ -9,6 +9,7 @@
 - **Plugin types and registry moved to core.** `src/pluginTypes.ts` defines the contracts plugins implement; `src/pluginRegistry.ts` provides runtime lookup. Plugins import from core, not vice versa.
 - **Rate limit monitor made generic.** No longer GitHub-specific — bucket names are namespaced by plugin (e.g. `gh-issues:core`). The `parseRateLimitHeaders` function moved into the GitHub plugin.
 - **Frontmatter completion provider moved to GitHub plugin.** It depends on the GitHub API and is no longer part of core.
+- **Readability cleanup for junior engineer accessibility.** Extracted focused utility modules from `syncOrchestrator.ts`: `diffHelpers.ts` (line diff & conflict markers), `fileModification.ts` (local file change detection), `filePermissions.ts` (chmod helpers), `targetReconciliation.ts` (move/delete when targets change). Broke up large methods (`activateFolder`, `pushFile`) into small single-purpose functions. Deduplicated shared logic and replaced inline patterns with reusable helpers (`getPluginConfig`, `buildPluginContext`). Comments act as navigation markers only — method and variable names carry the meaning.
 
 ### Bug Fixes
 

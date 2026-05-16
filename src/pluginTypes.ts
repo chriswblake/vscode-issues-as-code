@@ -1,9 +1,9 @@
 import type { IssueFrontmatter } from "./fileManager";
 import type {
-  SyncStateManager,
+  SyncStateStore,
   SyncStateEntry,
   RemoteIssueInfo,
-} from "./syncStateManager";
+} from "./syncStateStore";
 import type { SyncTarget } from "./configManager";
 
 // ---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ export interface PluginContext {
   /** The workspace folder path. */
   workspaceFolderPath: string;
   /** Access to the sync state for this workspace. */
-  stateManager: SyncStateManager;
+  stateManager: SyncStateStore;
 }
 
 // ---------------------------------------------------------------------------
@@ -214,7 +214,7 @@ export interface ManagedPluginTarget {
   filesDir: string;
   pluginId: string;
   pluginConfig: Record<string, unknown>;
-  stateManager: SyncStateManager;
+  stateManager: SyncStateStore;
   readOnly?: boolean;
 }
 

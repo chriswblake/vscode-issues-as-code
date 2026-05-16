@@ -40,7 +40,7 @@ interface SyncStateFile {
 /**
  * Persists per-file sync state, structured by plugin and cross-referenced from the `files` section.
  */
-export class SyncStateManager {
+export class SyncStateStore {
   private state: SyncStateFile = { files: {} };
   private changeListeners: Array<(filePath: string) => void> = [];
 
@@ -58,6 +58,32 @@ export class SyncStateManager {
     for (const listener of this.changeListeners) {
       listener(filePath);
     }
+  }
+
+  /** Writes a remote snapshot into the pluginData section, initializing containers as needed. */
+  private storePluginData(
+    remote: RemoteIssueInfo, //
+    pluginId: string,
+    remoteKey: string,
+  ): void {
+    if (!this.state.pluginData) {
+      this.state.pluginData = {};
+    }
+    if (!this.state.pluginData[pluginId]) {
+      this.state.pluginData[pluginId] = {};
+    }
+    this.state.pluginData[pluginId][remoteKey] = {
+      number: remote.number,
+      state: remote.state,
+      updated_at: remote.updated_at,
+      closed_at: remote.closed_at,
+      html_url: remote.html_url,
+      ...(remote.node_id ? { node_id: remote.node_id } : {}),
+      ...(remote.repository ? { repository: remote.repository } : {}),
+      ...(remote.last_modified_by
+        ? { last_modified_by: remote.last_modified_by }
+        : {}),
+    };
   }
 
   async load(): Promise<void> {
@@ -125,25 +151,7 @@ export class SyncStateManager {
     pluginId: string,
     remoteKey: string,
   ): Promise<void> {
-    // Update the plugin data section
-    if (!this.state.pluginData) {
-      this.state.pluginData = {};
-    }
-    if (!this.state.pluginData[pluginId]) {
-      this.state.pluginData[pluginId] = {};
-    }
-    this.state.pluginData[pluginId][remoteKey] = {
-      number: remote.number,
-      state: remote.state,
-      updated_at: remote.updated_at,
-      closed_at: remote.closed_at,
-      html_url: remote.html_url,
-      ...(remote.node_id ? { node_id: remote.node_id } : {}),
-      ...(remote.repository ? { repository: remote.repository } : {}),
-      ...(remote.last_modified_by
-        ? { last_modified_by: remote.last_modified_by }
-        : {}),
-    };
+    this.storePluginData(remote, pluginId, remoteKey);
 
     // Update the files section
     const existing = this.state.files[filePath] ?? { local_written_at: "" };
@@ -171,24 +179,7 @@ export class SyncStateManager {
     pluginId: string,
     remoteKey: string,
   ): Promise<void> {
-    if (!this.state.pluginData) {
-      this.state.pluginData = {};
-    }
-    if (!this.state.pluginData[pluginId]) {
-      this.state.pluginData[pluginId] = {};
-    }
-    this.state.pluginData[pluginId][remoteKey] = {
-      number: remote.number,
-      state: remote.state,
-      updated_at: remote.updated_at,
-      closed_at: remote.closed_at,
-      html_url: remote.html_url,
-      ...(remote.node_id ? { node_id: remote.node_id } : {}),
-      ...(remote.repository ? { repository: remote.repository } : {}),
-      ...(remote.last_modified_by
-        ? { last_modified_by: remote.last_modified_by }
-        : {}),
-    };
+    this.storePluginData(remote, pluginId, remoteKey);
 
     // Ensure the file entry has a plugin ref (so we can look it up)
     const existing = this.state.files[filePath];

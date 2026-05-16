@@ -1,5 +1,5 @@
 import type { IssueFrontmatter } from "../../fileManager";
-import type { SyncStateEntry } from "../../syncStateManager";
+import type { SyncStateEntry } from "../../syncStateStore";
 import type {
   PrimarySyncPlugin,
   PullItem,

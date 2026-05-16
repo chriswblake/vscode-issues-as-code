@@ -1,6 +1,6 @@
 import { Octokit } from "@octokit/rest";
 import type { IssueFrontmatter } from "../../fileManager";
-import type { RemoteIssueInfo } from "../../syncStateManager";
+import type { RemoteIssueInfo } from "../../syncStateStore";
 import type { MetadataPlugin, PluginContext } from "../../pluginTypes";
 
 // ---------------------------------------------------------------------------

@@ -2,27 +2,28 @@ import * as assert from "assert";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { isConflict, isExtensionWriteEvent } from "../src/syncOrchestrator";
 import {
-  isConflict,
-  isExtensionWriteEvent,
   classifyDiff,
   generateConflictContent,
   hasConflictMarkers,
+} from "../src/diffHelpers";
+import {
   reconcileTargetChanges,
   removeEmptyParentDirs,
-} from "../src/syncManager";
+} from "../src/targetReconciliation";
 import { GhIssuesPlugin } from "../src/plugins/gh-issues/ghIssuesPlugin";
 import {
-  SyncStateManager,
+  SyncStateStore,
   type RemoteIssueInfo,
-} from "../src/syncStateManager";
+} from "../src/syncStateStore";
 
 // ---------------------------------------------------------------------------
 // Section 1: Debounce timer behavior
 // ---------------------------------------------------------------------------
-suite("syncManager – debounce timer behavior", () => {
+suite("syncOrchestrator – debounce timer behavior", () => {
   /**
-   * Create a minimal SyncManager-like object that exposes the debounce
+   * Create a minimal SyncOrchestrator-like object that exposes the debounce
    * logic without requiring VS Code APIs.
    */
   function makeDebouncer(delayMs: number, onFire: (path: string) => void) {
@@ -112,7 +113,7 @@ suite("syncManager – debounce timer behavior", () => {
 // ---------------------------------------------------------------------------
 // Section 2: Conflict detection – isConflict()
 // ---------------------------------------------------------------------------
-suite("syncManager – conflict detection", () => {
+suite("syncOrchestrator – conflict detection", () => {
   test("returns true when cloud is newer than local sync state", () => {
     assert.strictEqual(
       isConflict("2026-04-22T12:00:00Z", "2026-04-22T10:00:00Z"), //
@@ -149,7 +150,7 @@ suite("syncManager – conflict detection", () => {
   });
 });
 
-suite("syncManager – extension write event fence", () => {
+suite("syncOrchestrator – extension write event fence", () => {
   test("returns true for identical mtime", () => {
     assert.strictEqual(isExtensionWriteEvent(1000, 1000), true);
   });
@@ -166,7 +167,7 @@ suite("syncManager – extension write event fence", () => {
 // ---------------------------------------------------------------------------
 // Section 2b: New issue title inference
 // ---------------------------------------------------------------------------
-suite("syncManager – new issue title inference", () => {
+suite("syncOrchestrator – new issue title inference", () => {
   // Uses the GhIssuesPlugin.inferTitle method (previously inferNewIssueTitle)
   const plugin = new GhIssuesPlugin(null as any);
 
@@ -219,8 +220,8 @@ suite("syncManager – new issue title inference", () => {
 // ---------------------------------------------------------------------------
 // Section 3: suppressedUris ref-counting
 // ---------------------------------------------------------------------------
-suite("syncManager – suppressedUris ref-counting", () => {
-  /** Minimal stub of the suppress/isSuppressed logic from SyncManager. */
+suite("syncOrchestrator – suppressedUris ref-counting", () => {
+  /** Minimal stub of the suppress/isSuppressed logic from SyncOrchestrator. */
   function makeSuppressionTracker() {
     const map = new Map<string, number>();
 
@@ -290,7 +291,7 @@ suite("syncManager – suppressedUris ref-counting", () => {
 // ---------------------------------------------------------------------------
 // Section 4: classifyDiff
 // ---------------------------------------------------------------------------
-suite("syncManager – classifyDiff", () => {
+suite("syncOrchestrator – classifyDiff", () => {
   test("identical content returns identical", () => {
     // Arrange
     const content = "line one\nline two\nline three";
@@ -354,7 +355,7 @@ suite("syncManager – classifyDiff", () => {
 // ---------------------------------------------------------------------------
 // Section 5: generateConflictContent
 // ---------------------------------------------------------------------------
-suite("syncManager – generateConflictContent", () => {
+suite("syncOrchestrator – generateConflictContent", () => {
   test("equal lines pass through without markers", () => {
     // Arrange
     const local = "line one\nline two";
@@ -427,7 +428,7 @@ suite("syncManager – generateConflictContent", () => {
 // ---------------------------------------------------------------------------
 // Section 6: hasConflictMarkers
 // ---------------------------------------------------------------------------
-suite("syncManager \u2013 hasConflictMarkers", () => {
+suite("syncOrchestrator \u2013 hasConflictMarkers", () => {
   test("returns false for clean content", () => {
     // Arrange / Act / Assert
     assert.strictEqual(
@@ -483,7 +484,7 @@ function makeRemoteInfo(
   };
 }
 
-suite("syncManager – reconcileTargetChanges (move)", () => {
+suite("syncOrchestrator – reconcileTargetChanges (move)", () => {
   test("moves issue files to the new location", async () => {
     // Arrange
     const root = makeTempDir();
@@ -492,7 +493,7 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
     fs.mkdirSync(oldLocation, { recursive: true });
 
     const statePath = path.join(root, "sync-state.yml");
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
     const filePath = path.join(oldLocation, "1-issue.task.md");
@@ -535,7 +536,7 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
     fs.mkdirSync(oldLocation, { recursive: true });
 
     const statePath = path.join(root, "sync-state.yml");
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
     const filePath = path.join(oldLocation, "1-issue.task.md");
@@ -578,7 +579,7 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
     fs.mkdirSync(oldLocation, { recursive: true });
 
     const statePath = path.join(root, "sync-state.yml");
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
     const filePath = path.join(oldLocation, "1-issue.task.md");
@@ -628,7 +629,7 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
     fs.mkdirSync(newLocation, { recursive: true });
 
     const statePath = path.join(root, "sync-state.yml");
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
     // State still points to old file path, but file is already at new location
@@ -671,7 +672,7 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
     fs.mkdirSync(location, { recursive: true });
 
     const statePath = path.join(root, "sync-state.yml");
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
     const filePath = path.join(location, "1-issue.task.md");
@@ -702,7 +703,7 @@ suite("syncManager – reconcileTargetChanges (move)", () => {
   });
 });
 
-suite("syncManager – reconcileTargetChanges (delete)", () => {
+suite("syncOrchestrator – reconcileTargetChanges (delete)", () => {
   test("deletes issue files when target is removed", async () => {
     // Arrange
     const root = makeTempDir();
@@ -710,7 +711,7 @@ suite("syncManager – reconcileTargetChanges (delete)", () => {
     fs.mkdirSync(location, { recursive: true });
 
     const statePath = path.join(root, "sync-state.yml");
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
     const filePath = path.join(location, "1-issue.task.md");
@@ -744,7 +745,7 @@ suite("syncManager – reconcileTargetChanges (delete)", () => {
     fs.mkdirSync(location, { recursive: true });
 
     const statePath = path.join(root, "sync-state.yml");
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
     const filePath = path.join(location, "1-issue.task.md");
@@ -779,7 +780,7 @@ suite("syncManager – reconcileTargetChanges (delete)", () => {
     fs.mkdirSync(location, { recursive: true });
 
     const statePath = path.join(root, "sync-state.yml");
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
     // State points to a file that no longer exists (already deleted in a prior partial run)
@@ -817,7 +818,7 @@ suite("syncManager – reconcileTargetChanges (delete)", () => {
     fs.mkdirSync(removedLocation, { recursive: true });
 
     const statePath = path.join(root, "sync-state.yml");
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
     const keptFile = path.join(keptLocation, "1-kept.task.md");
@@ -869,7 +870,7 @@ suite("syncManager – reconcileTargetChanges (delete)", () => {
 // Section 8: removeEmptyParentDirs
 // ---------------------------------------------------------------------------
 
-suite("syncManager – removeEmptyParentDirs", () => {
+suite("syncOrchestrator – removeEmptyParentDirs", () => {
   test("removeEmptyParentDirs: removes empty directory and its empty parents", async () => {
     // Arrange
     const root = makeTempDir();
@@ -971,7 +972,7 @@ suite("syncManager – removeEmptyParentDirs", () => {
   });
 });
 
-suite("syncManager – reconcileTargetChanges removes empty parent dirs", () => {
+suite("syncOrchestrator – reconcileTargetChanges removes empty parent dirs", () => {
   test("move: removes empty parent directories after moving files", async () => {
     // Arrange
     const root = makeTempDir();
@@ -980,7 +981,7 @@ suite("syncManager – reconcileTargetChanges removes empty parent dirs", () => 
     fs.mkdirSync(oldLocation, { recursive: true });
 
     const statePath = path.join(root, "sync-state.yml");
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
     const filePath = path.join(oldLocation, "1-issue.task.md");
@@ -1025,7 +1026,7 @@ suite("syncManager – reconcileTargetChanges removes empty parent dirs", () => 
     fs.mkdirSync(keptLocation, { recursive: true });
 
     const statePath = path.join(root, "sync-state.yml");
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
     const filePath = path.join(oldLocation, "1-issue.task.md");
@@ -1089,7 +1090,7 @@ suite("syncManager – reconcileTargetChanges removes empty parent dirs", () => 
     fs.mkdirSync(location, { recursive: true });
 
     const statePath = path.join(root, "sync-state.yml");
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
     const filePath = path.join(location, "1-issue.task.md");

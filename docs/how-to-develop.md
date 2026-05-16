@@ -84,14 +84,18 @@ If cloning fails in Extension Development Host, that is expected for some setups
 | `src/extension.ts`               | Entry point — `activate` / `deactivate`                 |
 | `src/configManager.ts`           | Configuration helpers, repo detection                   |
 | `src/fileManager.ts`             | Read / write / serialize `.task.md` issue files         |
-| `src/syncManager.ts`             | Orchestration — watcher, debounce, pull timer, conflict |
-| `src/syncStateManager.ts`        | Tracks sync state (remote revisions, local writes)      |
+| `src/syncOrchestrator.ts`             | Orchestration — watcher, debounce, pull timer           |
+| `src/diffHelpers.ts`             | Line diff computation and conflict marker utilities     |
+| `src/fileModification.ts`        | Check whether a local file has been modified since sync |
+| `src/filePermissions.ts`         | Make files read-only or writable (chmod helpers)        |
+| `src/targetReconciliation.ts`    | Move / delete issue files when targets are reconfigured |
+| `src/syncStateStore.ts`        | Tracks sync state (remote revisions, local writes)      |
 | `src/pluginTypes.ts`             | Plugin interfaces and contracts (core-facing)           |
 | `src/pluginRegistry.ts`          | Plugin registry — lookup plugins by ID                  |
 | `src/rateLimitMonitor.ts`        | Generic API rate limit tracking and pause logic         |
 | `src/statusBarManager.ts`        | Status bar UI (icon, tooltip, panel)                    |
-| `src/issueDecorationProvider.ts` | Explorer file decorations (sync state badges)           |
-| `src/publishCodeLensProvider.ts` | CodeLens actions (Publish, Sync Now, Pull Changes)      |
+| `src/fileDecorator.ts` | Explorer file decorations (sync state badges)           |
+| `src/syncCodeLensProvider.ts` | CodeLens actions (Publish, Sync Now, Pull Changes)      |
 | `src/plugins/loader.ts`          | Plugin discovery and initialization                     |
 | `src/plugins/gh-issues/`         | GitHub Issues plugin (primary sync plugin)              |
 | `src/plugins/gh-projects/`       | GitHub Projects plugin (metadata enrichment)            |

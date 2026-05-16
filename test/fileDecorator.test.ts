@@ -4,13 +4,13 @@ import * as os from "os";
 import * as path from "path";
 import * as yaml from "js-yaml";
 import {
-  SyncStateManager,
+  SyncStateStore,
   type RemoteIssueInfo,
-} from "../src/syncStateManager";
+} from "../src/syncStateStore";
 import {
-  IssueDecorationProvider,
+  FileDecorator,
   type SyncStatus,
-} from "../src/issueDecorationProvider";
+} from "../src/fileDecorator";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -45,17 +45,17 @@ function makeUri(filePath: string): { fsPath: string } {
 // Section 1: resolveStatus – new issue (no sync state)
 // ---------------------------------------------------------------------------
 
-suite("issueDecorationProvider – new issue status", () => {
+suite("fileDecorator – new issue status", () => {
   test("returns new for a file with no sync state entry", async () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
     const issueFile = path.join(dir, "1-new-issue.task.md");
     fs.writeFileSync(issueFile, "# New issue\n", "utf8");
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
@@ -76,12 +76,12 @@ suite("issueDecorationProvider – new issue status", () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
     const issueFile = path.join(dir, "1-new-issue.task.md");
     fs.writeFileSync(issueFile, "# New issue\n", "utf8");
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: false,
       modified: true,
@@ -102,12 +102,12 @@ suite("issueDecorationProvider – new issue status", () => {
 // Section 2: resolveStatus – synchronized (file written by extension, not modified)
 // ---------------------------------------------------------------------------
 
-suite("issueDecorationProvider – synchronized status", () => {
+suite("fileDecorator – synchronized status", () => {
   test("returns synchronized for a file written by the extension and not modified since", async () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
     const issueFile = path.join(dir, "1-synced-issue.task.md");
 
@@ -124,7 +124,7 @@ suite("issueDecorationProvider – synchronized status", () => {
     const past = new Date(Date.now() - 10000);
     fs.utimesSync(issueFile, past, past);
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
@@ -145,7 +145,7 @@ suite("issueDecorationProvider – synchronized status", () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
     const issueFile = path.join(dir, "1-synced-issue.task.md");
 
@@ -160,7 +160,7 @@ suite("issueDecorationProvider – synchronized status", () => {
     const past = new Date(Date.now() - 10000);
     fs.utimesSync(issueFile, past, past);
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
@@ -181,12 +181,12 @@ suite("issueDecorationProvider – synchronized status", () => {
 // Section 3: resolveStatus – modified (file edited after last sync)
 // ---------------------------------------------------------------------------
 
-suite("issueDecorationProvider – modified status", () => {
+suite("fileDecorator – modified status", () => {
   test("returns modified for a file whose mtime is newer than local_written_at", async () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
     const issueFile = path.join(dir, "1-modified-issue.task.md");
 
@@ -202,7 +202,7 @@ suite("issueDecorationProvider – modified status", () => {
     const future = new Date(Date.now() + 60000);
     fs.utimesSync(issueFile, future, future);
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
@@ -223,7 +223,7 @@ suite("issueDecorationProvider – modified status", () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
     const issueFile = path.join(dir, "1-modified-issue.task.md");
 
@@ -238,7 +238,7 @@ suite("issueDecorationProvider – modified status", () => {
     const future = new Date(Date.now() + 60000);
     fs.utimesSync(issueFile, future, future);
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: false,
@@ -259,15 +259,15 @@ suite("issueDecorationProvider – modified status", () => {
 // Section 4: path filtering
 // ---------------------------------------------------------------------------
 
-suite("issueDecorationProvider – path filtering", () => {
+suite("fileDecorator – path filtering", () => {
   test("returns undefined for a non-.task.md file", async () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
@@ -288,10 +288,10 @@ suite("issueDecorationProvider – path filtering", () => {
     const dir = makeTempDir();
     const otherDir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
@@ -310,7 +310,7 @@ suite("issueDecorationProvider – path filtering", () => {
   test("returns undefined when no managed locations are configured", async () => {
     // Arrange
     const dir = makeTempDir();
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([], { newIssue: true, modified: true, synchronized: true });
 
     // Act
@@ -324,14 +324,14 @@ suite("issueDecorationProvider – path filtering", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 5: SyncStateManager – local_written_at field
+// Section 5: SyncStateStore – local_written_at field
 // ---------------------------------------------------------------------------
 
 suite("syncStateManager – local_written_at", () => {
   test("local_written_at is set to a recent ISO timestamp when setSyncedAt is called", async () => {
     // Arrange
     const statePath = path.join(makeTempDir(), "sync-state.yml");
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     const before = Date.now();
 
@@ -357,7 +357,7 @@ suite("syncStateManager – local_written_at", () => {
   test("local_written_at is persisted to disk", async () => {
     // Arrange
     const statePath = path.join(makeTempDir(), "sync-state.yml");
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
 
     // Act
@@ -379,14 +379,14 @@ suite("syncStateManager – local_written_at", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Section 6: SyncStateManager – onDidChange
+// Section 6: SyncStateStore – onDidChange
 // ---------------------------------------------------------------------------
 
 suite("syncStateManager – onDidChange", () => {
   test("listener is called with file path when setSyncedAt is called", async () => {
     // Arrange
     const statePath = path.join(makeTempDir(), "sync-state.yml");
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     const changed: string[] = [];
     manager.onDidChange((fp) => changed.push(fp));
@@ -406,7 +406,7 @@ suite("syncStateManager – onDidChange", () => {
   test("listener is called with file path when deleteEntry is called", async () => {
     // Arrange
     const statePath = path.join(makeTempDir(), "sync-state.yml");
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     await manager.setSyncedAt(
       "/issues/1.task.md",
@@ -427,7 +427,7 @@ suite("syncStateManager – onDidChange", () => {
   test("unsubscribed listener is not called after unsubscribe", async () => {
     // Arrange
     const statePath = path.join(makeTempDir(), "sync-state.yml");
-    const manager = new SyncStateManager(statePath);
+    const manager = new SyncStateStore(statePath);
     await manager.load();
     const changed: string[] = [];
     const unsubscribe = manager.onDidChange((fp) => changed.push(fp));
@@ -450,12 +450,12 @@ suite("syncStateManager – onDidChange", () => {
 // Section 7: dirty tracking – markDirty / clearDirty
 // ---------------------------------------------------------------------------
 
-suite("issueDecorationProvider – dirty tracking", () => {
+suite("fileDecorator – dirty tracking", () => {
   test("markDirty causes M badge before file is saved", async () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
     const issueFile = path.join(dir, "1-issue.task.md");
     fs.writeFileSync(issueFile, "# Issue\n", "utf8");
@@ -470,7 +470,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     const past = new Date(Date.now() - 10000);
     fs.utimesSync(issueFile, past, past);
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
@@ -492,7 +492,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
     const issueFile = path.join(dir, "1-issue.task.md");
     fs.writeFileSync(issueFile, "# Issue\n", "utf8");
@@ -506,7 +506,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     const past = new Date(Date.now() - 10000);
     fs.utimesSync(issueFile, past, past);
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
@@ -529,7 +529,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
     const issueFile = path.join(dir, "1-issue.task.md");
     fs.writeFileSync(issueFile, "# Issue\n", "utf8");
@@ -543,7 +543,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     const past = new Date(Date.now() - 10000);
     fs.utimesSync(issueFile, past, past);
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
@@ -565,7 +565,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     // Arrange
     const dir = makeTempDir();
     const otherDir = makeTempDir();
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([], { newIssue: true, modified: true, synchronized: true });
     const outsideFile = path.join(otherDir, "1-issue.task.md");
 
@@ -583,7 +583,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
     const issueFile = path.join(dir, "1-issue.task.md");
     fs.writeFileSync(issueFile, "# Issue\n", "utf8");
@@ -594,7 +594,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
       "owner/repo/1",
     );
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,
@@ -617,7 +617,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     // Arrange
     const dir = makeTempDir();
     const statePath = makeTempStatePath(dir);
-    const stateManager = new SyncStateManager(statePath);
+    const stateManager = new SyncStateStore(statePath);
     await stateManager.load();
     const issueFile = path.join(dir, "1-issue.task.md");
     fs.writeFileSync(issueFile, "# Issue\n", "utf8");
@@ -631,7 +631,7 @@ suite("issueDecorationProvider – dirty tracking", () => {
     const past = new Date(Date.now() - 10000);
     fs.utimesSync(issueFile, past, past);
 
-    const provider = new IssueDecorationProvider();
+    const provider = new FileDecorator();
     provider.update([{ location: dir, pluginId: "gh-issues", stateManager }], {
       newIssue: true,
       modified: true,

@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type * as vscodeType from "vscode";
 import type { ShowSyncIconsConfig } from "./configManager";
-import type { SyncStateManager } from "./syncStateManager";
+import type { SyncStateStore } from "./syncStateStore";
 
 // Lazy vscode import so unit tests can run without a VS Code instance
 function vscode(): typeof vscodeType {
@@ -50,7 +50,7 @@ const DECORATIONS: Record<
 interface ManagedLocation {
   location: string;
   pluginId: string;
-  stateManager: SyncStateManager;
+  stateManager: SyncStateStore;
   readOnly?: boolean;
 }
 
@@ -58,7 +58,7 @@ interface ManagedLocation {
  * Provides file decorations (badge + tooltip) for issue files in the Explorer,
  * reflecting their sync status relative to the remote service.
  */
-export class IssueDecorationProvider
+export class FileDecorator
   implements vscodeType.FileDecorationProvider
 {
   private _emitter:
@@ -198,7 +198,7 @@ export class IssueDecorationProvider
 
   private resolveStatus(
     filePath: string,
-    stateManager: SyncStateManager,
+    stateManager: SyncStateStore,
     pluginId: string,
     readOnly?: boolean,
   ): SyncStatus {

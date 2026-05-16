@@ -1,7 +1,7 @@
-import * as fs from "fs";
 import * as path from "path";
 import type * as vscodeType from "vscode";
-import type { SyncStateManager } from "./syncStateManager";
+import type { SyncStateStore } from "./syncStateStore";
+import { isLocalFileModified } from "./fileModification";
 
 // Lazy vscode import so unit tests can run without a VS Code instance
 function vscode(): typeof vscodeType {
@@ -13,7 +13,7 @@ interface ManagedTarget {
   filesDir: string;
   pluginId: string;
   displayName: string;
-  stateManager: SyncStateManager;
+  stateManager: SyncStateStore;
   readOnly?: boolean;
 }
 
@@ -25,7 +25,7 @@ interface ManagedTarget {
  *   - Line 2: Sync details — remote status, "Pull Changes" (if pending), "Sync Now" (if modified locally).
  * - Read-only files: shows only the remote reference link (no publish or sync buttons).
  */
-export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
+export class SyncCodeLensProvider implements vscodeType.CodeLensProvider {
   private _emitter: vscodeType.EventEmitter<void> | undefined;
   private targets: ManagedTarget[] = [];
 
@@ -123,7 +123,7 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
         }
 
         // "Sync Now" button when locally modified and no pending remote changes
-        if (!hasPending && isFileModified(filePath, stateEntry)) {
+        if (!hasPending && isLocalFileModified(filePath, stateEntry)) {
           lenses.push(this.createSyncNowCodeLens(document, lensLine));
         }
       }
@@ -151,7 +151,7 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
   private buildRemoteStatusText(
     filePath: string,
     pluginId: string,
-    stateManager: SyncStateManager,
+    stateManager: SyncStateStore,
   ): string | null {
     const pluginData = stateManager.getPluginData(filePath, pluginId);
     if (!pluginData) {
@@ -176,7 +176,7 @@ export class PublishCodeLensProvider implements vscodeType.CodeLensProvider {
     document: vscodeType.TextDocument, //
     remoteKey: string,
     pluginId: string,
-    stateManager: SyncStateManager,
+    stateManager: SyncStateStore,
     line: number,
   ): vscodeType.CodeLens {
     const vs = vscode();
@@ -311,26 +311,6 @@ export function findFrontmatterSectionLine(
   }
 
   return 0;
-}
-
-/**
- * Returns true if the saved file has been modified since the extension last wrote it.
- * Provides a 1 second tolerance for filesystem timestamp differences.
- */
-export function isFileModified(
-  filePath: string,
-  stateEntry: { local_written_at: string } | undefined,
-): boolean {
-  if (!stateEntry) {
-    return false;
-  }
-  try {
-    const stat = fs.statSync(filePath);
-    const localWrittenAt = new Date(stateEntry.local_written_at).getTime();
-    return stat.mtimeMs > localWrittenAt + 1000;
-  } catch {
-    return false;
-  }
 }
 
 /**

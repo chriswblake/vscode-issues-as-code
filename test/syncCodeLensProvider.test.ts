@@ -4,9 +4,9 @@ import * as os from "os";
 import * as path from "path";
 import {
   findFrontmatterSectionLine,
-  isFileModified,
   formatRelativeTime,
-} from "../src/publishCodeLensProvider";
+} from "../src/syncCodeLensProvider";
+import { isLocalFileModified as isFileModified } from "../src/fileModification";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -24,7 +24,7 @@ function makeDocument(text: string): { getText(): string; lineCount: number } {
 // Section 1: findFrontmatterSectionLine
 // ---------------------------------------------------------------------------
 
-suite("publishCodeLensProvider – findFrontmatterSectionLine", () => {
+suite("syncCodeLensProvider – findFrontmatterSectionLine", () => {
   test("findFrontmatterSectionLine: returns line number of named section in frontmatter", () => {
     // Arrange
     const text = "---\ngh-issues:\n  title: Hello\n---\n\nBody text\n";
@@ -79,7 +79,7 @@ suite("publishCodeLensProvider – findFrontmatterSectionLine", () => {
 // Section 2: isFileModified
 // ---------------------------------------------------------------------------
 
-suite("publishCodeLensProvider – isFileModified", () => {
+suite("syncCodeLensProvider – isFileModified", () => {
   function makeTempDir(): string {
     return fs.mkdtempSync(path.join(os.tmpdir(), "codelens-test-"));
   }
@@ -163,7 +163,7 @@ suite("publishCodeLensProvider – isFileModified", () => {
 // Section 3: formatRelativeTime
 // ---------------------------------------------------------------------------
 
-suite("publishCodeLensProvider – formatRelativeTime", () => {
+suite("syncCodeLensProvider – formatRelativeTime", () => {
   test("formatRelativeTime: returns 'just now' for very recent timestamps", () => {
     // Arrange
     const date = new Date(Date.now() - 10_000);

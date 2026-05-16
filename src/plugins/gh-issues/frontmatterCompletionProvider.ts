@@ -1,7 +1,7 @@
 import * as path from "path";
 import type * as vscodeType from "vscode";
 import type { GitHubClient } from "./githubClient";
-import type { SyncStateManager } from "../../syncStateManager";
+import type { SyncStateStore } from "../../syncStateStore";
 import { parseOwnerRepo } from "../../configManager";
 
 // Lazy vscode import so unit tests can run without a VS Code instance
@@ -15,7 +15,7 @@ interface ManagedTarget {
   pluginId: string;
   /** Repository in "owner/repo" format, if applicable */
   repository?: string;
-  stateManager: SyncStateManager;
+  stateManager: SyncStateStore;
 }
 
 interface CacheEntry<T> {

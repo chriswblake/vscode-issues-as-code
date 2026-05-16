@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { IssueFrontmatter } from "../../fileManager";
 import type { GitHubClient, IssueData } from "./githubClient";
-import type { RemoteIssueInfo, SyncStateEntry } from "../../syncStateManager";
+import type { RemoteIssueInfo, SyncStateEntry } from "../../syncStateStore";
 import type {
   PrimarySyncPlugin,
   PullItem,
