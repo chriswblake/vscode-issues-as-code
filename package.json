@@ -232,12 +232,6 @@
             "synchronized": true
           }
         },
-        "issuesAsCode.enable_experimental_projects": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable experimental GitHub Projects v2 metadata sync. Requires reloading VS Code to take effect.",
-          "scope": "resource"
-        },
         "issuesAsCode.rateLimitThreshold": {
           "type": "number",
           "default": 5,

@@ -191,11 +191,6 @@ suite("configManager – getConfig defaults", () => {
     assert.strictEqual(config.autoFetchInterval, 30);
   });
 
-  test("enableExperimentalProjects defaults to false", () => {
-    const config = getConfig("/workspace");
-    assert.strictEqual(config.enableExperimentalProjects, false);
-  });
-
   test("showStatusBarIcon defaults to true", () => {
     const config = getConfig("/workspace");
     assert.strictEqual(config.showStatusBarIcon, true);
