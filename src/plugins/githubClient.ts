@@ -92,11 +92,12 @@ export class GitHubClient {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const vscode = require("vscode");
-      let session = await vscode.authentication.getSession("github", ["repo"], {
+      const scopes = ["repo", "read:org", "read:project"];
+      let session = await vscode.authentication.getSession("github", scopes, {
         createIfNone: false,
       });
       if (!session) {
-        session = await vscode.authentication.getSession("github", ["repo"], {
+        session = await vscode.authentication.getSession("github", scopes, {
           createIfNone: true,
         });
       }
