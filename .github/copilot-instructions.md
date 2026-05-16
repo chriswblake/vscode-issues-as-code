@@ -68,6 +68,9 @@ Write tests alongside the code, not afterward. Tests ensure the interfaces remai
 ## Changelog
 
 Work in logical commits. Each commit should represent a single change or feature.
+
 This makes it easier to review and understand the history of changes for creating the changelog.
+
+When ready to make a commit, ask the user to confirm.
 
 Add a "pending" section to the changelong for each PR. This will be used for for publishing releases.
